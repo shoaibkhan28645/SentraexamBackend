@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from django.db import models
+from django.db.models import QuerySet
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
+
+from apps.users.models import User
+from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD
+from .models import Assessment, AssessmentSubmission
+from .serializers import (
+    AssessmentApprovalSerializer,
+    AssessmentCreateSerializer,
+    AssessmentGradeSerializer,
+    AssessmentScheduleSerializer,
+    AssessmentSerializer,
+    AssessmentSubmissionSerializer,
+)
+
+
+class AssessmentViewSet(viewsets.ModelViewSet):
+    queryset = Assessment.objects.select_related(
+        "course", "course__department", "created_by", "approved_by"
+    )
+    serializer_class = AssessmentSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ("course", "assessment_type", "status")
+    search_fields = ("title", "description")
+    ordering_fields = ("scheduled_at", "created_at")
+
+    def get_queryset(self) -> QuerySet[Assessment]:
+        user = self.request.user
+        qs = self.queryset
+        if user.role == User.Role.ADMIN:
+            return qs.distinct()
+        if user.role == User.Role.HOD and user.department_id:
+            return qs.filter(course__department_id=user.department_id).distinct()
+        if user.role == User.Role.TEACHER:
+            return qs.filter(
+                models.Q(created_by=user) | models.Q(course__assigned_teacher=user)
+            ).distinct()
+        if user.role == User.Role.STUDENT:
+            return qs.filter(
+                course__enrollments__student=user,
+                status__in=[
+                    Assessment.Status.APPROVED,
+                    Assessment.Status.SCHEDULED,
+                    Assessment.Status.IN_PROGRESS,
+                    Assessment.Status.COMPLETED,
+                ],
+            ).distinct()
+        return qs.none()
+
+    def get_serializer_class(self):
+        if self.action in {"create", "update", "partial_update"}:
+            return AssessmentCreateSerializer
+        return self.serializer_class
+
+    def get_permissions(self):
+        if self.action in {"create", "update", "partial_update"}:
+            return [IsAuthenticated(), IsAdminHODOrTeacher()]
+        if self.action in {"destroy"}:
+            return [IsAuthenticated(), IsAdminOrHOD()]
+        if self.action in {"approve", "schedule"}:
+            return [IsAuthenticated(), IsAdminOrHOD()]
+        if self.action == "submit_for_approval":
+            return [IsAuthenticated(), IsAdminHODOrTeacher()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        assessment = serializer.save()
+        request_user = self.request.user
+        assessment.created_by = request_user
+        assessment.save(update_fields=["created_by"])
+
+    @action(detail=True, methods=["post"], url_path="submit")
+    def submit_for_approval(self, request, *args, **kwargs):
+        assessment = self.get_object()
+        if request.user.role not in {User.Role.TEACHER, User.Role.HOD, User.Role.ADMIN}:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        assessment.submit_for_approval()
+        return Response(AssessmentSerializer(assessment, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, *args, **kwargs):
+        assessment = self.get_object()
+        serializer = AssessmentApprovalSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(assessment=assessment)
+        return Response(AssessmentSerializer(assessment, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def schedule(self, request, *args, **kwargs):
+        assessment = self.get_object()
+        serializer = AssessmentScheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(assessment=assessment)
+        return Response(AssessmentSerializer(assessment, context={"request": request}).data)
+
+
+class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
+    queryset = AssessmentSubmission.objects.select_related(
+        "assessment", "assessment__course", "student"
+    )
+    serializer_class = AssessmentSubmissionSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ("assessment", "student", "status")
+
+    def get_queryset(self) -> QuerySet[AssessmentSubmission]:
+        user = self.request.user
+        qs = self.queryset
+        if user.role in {User.Role.ADMIN, User.Role.HOD}:
+            return qs
+        if user.role == User.Role.TEACHER:
+            return qs.filter(assessment__course__assigned_teacher=user)
+        if user.role == User.Role.STUDENT:
+            return qs.filter(student=user)
+        return qs.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role != User.Role.STUDENT:
+            raise PermissionDenied("Only students can submit assessments.")
+        serializer.save(student=user, created_by=user, updated_by=user)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsAdminHODOrTeacher])
+    def grade(self, request, *args, **kwargs):
+        submission = self.get_object()
+        serializer = AssessmentGradeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(submission=submission)
+        return Response(
+            AssessmentSubmissionSerializer(submission, context={"request": request}).data
+        )
