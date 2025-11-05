@@ -1,0 +1,157 @@
+import React, { useState } from 'react';
+import { Table, Button, Space, Input, Modal, message, Typography, Tag, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { useDepartments, useDeleteDepartment } from '../../../api/departments';
+import type { Department } from '../../../types/index';
+import type { ColumnType } from 'antd/es/table';
+
+const { Title } = Typography;
+const { confirm } = Modal;
+
+const DepartmentsListPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+
+  const { data, isLoading, error, refetch } = useDepartments({ search, page });
+  const deleteMutation = useDeleteDepartment();
+
+  if (error) {
+    return (
+      <div>
+        <Title level={2} style={{ marginBottom: 16 }}>Departments</Title>
+        <Alert type="error" showIcon message="Failed to load departments" description={(error as any)?.message || 'Please check your connection or login again.'} />
+      </div>
+    );
+  }
+
+  const handleDelete = (department: Department) => {
+    confirm({
+      title: 'Delete Department',
+      content: `Are you sure you want to delete ${department.name}?`,
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await deleteMutation.mutateAsync(department.id);
+          message.success('Department deleted successfully');
+          refetch();
+        } catch (error: any) {
+          message.error(error.response?.data?.detail || 'Failed to delete department');
+        }
+      },
+    });
+  };
+
+  const columns: ColumnType<Department>[] = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      sorter: (a, b) => a.name.localeCompare(b.name),
+    },
+    {
+      title: 'Code',
+      dataIndex: 'code',
+      key: 'code',
+      render: (code) => <Tag color="blue">{code}</Tag>,
+    },
+    {
+      title: 'Head of Department',
+      dataIndex: 'head_email',
+      key: 'head',
+      render: (email) => email || '-',
+    },
+    {
+      title: 'Teachers',
+      dataIndex: 'teacher_count',
+      key: 'teachers',
+      render: (count) => (
+        <Space>
+          <TeamOutlined />
+          {count || 0}
+        </Space>
+      ),
+      align: 'center',
+    },
+    {
+      title: 'Students',
+      dataIndex: 'student_count',
+      key: 'students',
+      render: (count) => (
+        <Space>
+          <TeamOutlined />
+          {count || 0}
+        </Space>
+      ),
+      align: 'center',
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => navigate(`/dashboard/departments/${record.id}/edit`)}
+          >
+            Edit
+          </Button>
+          <Button
+            type="link"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record)}
+          >
+            Delete
+          </Button>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <Title level={2} style={{ margin: 0 }}>Departments</Title>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => navigate('/dashboard/departments/new')}
+        >
+          Add Department
+        </Button>
+      </div>
+
+      <Space style={{ marginBottom: 16 }}>
+        <Input
+          placeholder="Search departments..."
+          prefix={<SearchOutlined />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: 300 }}
+          allowClear
+        />
+      </Space>
+
+      <Table
+        columns={columns}
+        dataSource={data?.results || []}
+        loading={isLoading}
+        rowKey="id"
+        pagination={{
+          current: page,
+          pageSize: 10,
+          total: data?.count || 0,
+          onChange: (newPage) => setPage(newPage),
+          showSizeChanger: false,
+          showTotal: (total) => `Total ${total} departments`,
+        }}
+      />
+    </div>
+  );
+};
+
+export default DepartmentsListPage;
