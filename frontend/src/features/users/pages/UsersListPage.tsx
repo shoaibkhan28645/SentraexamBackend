@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, Button, Space, Tag, Input, Select, Modal, message, Typography, Alert } from 'antd';
+import { Table, Button, Space, Tag, Input, Select, message, Typography, Alert, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useUsers, useDeleteUser } from '../../../api/users';
@@ -8,8 +8,6 @@ import { UserRole } from '../../../types/index';
 import type { ColumnType } from 'antd/es/table';
 
 const { Title } = Typography;
-const { confirm } = Modal;
-
 const UsersListPage: React.FC = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -33,22 +31,14 @@ const UsersListPage: React.FC = () => {
     );
   }
 
-  const handleDelete = (user: User) => {
-    confirm({
-      title: 'Delete User',
-      content: `Are you sure you want to delete ${user.first_name} ${user.last_name}?`,
-      okText: 'Delete',
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteMutation.mutateAsync(user.id);
-          message.success('User deleted successfully');
-          refetch();
-        } catch (error: any) {
-          message.error(error.response?.data?.detail || 'Failed to delete user');
-        }
-      },
-    });
+  const handleDelete = async (user: User) => {
+    try {
+      await deleteMutation.mutateAsync(user.id);
+      message.success('User deleted successfully');
+      refetch();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to delete user');
+    }
   };
 
   const roleColors: Record<UserRole, string> = {
@@ -112,14 +102,18 @@ const UsersListPage: React.FC = () => {
           >
             Edit
           </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete(record)}
+          <Popconfirm
+            title="Delete User"
+            description={`Are you sure you want to delete ${record.first_name} ${record.last_name}?`}
+            okText="Delete"
+            okType="danger"
+            okButtonProps={{ loading: deleteMutation.isPending }}
+            onConfirm={() => handleDelete(record)}
           >
-            Delete
-          </Button>
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              Delete
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

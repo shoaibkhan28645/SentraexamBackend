@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { User, LoginPayload, AuthTokens } from '../types';
-import { login as apiLogin, logout as apiLogout } from '../api/auth';
+import { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
+import type { User, LoginPayload } from '../types';
+import { login as apiLogin, logout as apiLogout, getCurrentUser } from '../api/auth';
 import { getTokens, clearTokens, setTokens } from '../api/client';
-import apiClient from '../api/client';
 
 interface AuthContextType {
   user: User | null;
@@ -27,7 +27,7 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,46 +40,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return;
       }
 
-      // Since there's no /me endpoint, we'll decode the JWT or fetch user list filtered
-      // For now, let's get the user from the accounts list
-      // In a real app, you might want to decode JWT or add a /me endpoint to Django
-      const { data } = await apiClient.get<User[]>('/auth/accounts/', {
-        params: { limit: 1 }, // Get first user (current user based on auth)
-      });
-
-      // Better approach: decode JWT to get user ID, then fetch that specific user
-      // For now, we'll use a simpler approach and assume the API returns current user data
-      // You may need to adjust this based on your Django backend
-
-      // Alternative: Parse JWT token to get user info
-      const payload = parseJWT(tokens.access);
-      if (payload && payload.user_id) {
-        const { data: userData } = await apiClient.get<User>(`/auth/accounts/${payload.user_id}/`);
-        setUser(userData);
-      }
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
     } catch (error) {
       console.error('Failed to fetch current user:', error);
       clearTokens();
       setUser(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Parse JWT to extract user info
-  const parseJWT = (token: string): any => {
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split('')
-          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-          .join('')
-      );
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      return null;
     }
   };
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import uuid
+from pathlib import Path
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -8,6 +11,11 @@ from apps.common.models import BaseModel, OwnedModel
 from apps.courses.models import Course
 
 User = settings.AUTH_USER_MODEL
+
+
+def submission_upload_to(instance: "AssessmentSubmission", filename: str) -> str:
+    extension = Path(filename).suffix
+    return f"assessments/submissions/{instance.assessment_id}/{uuid.uuid4()}{extension}"
 
 
 class Assessment(BaseModel):
@@ -26,13 +34,25 @@ class Assessment(BaseModel):
         COMPLETED = "COMPLETED", "Completed"
         CANCELLED = "CANCELLED", "Cancelled"
 
+    class SubmissionFormat(models.TextChoices):
+        ONLINE = "ONLINE", "Online exam session"
+        TEXT = "TEXT", "Text response"
+        FILE = "FILE", "File upload"
+        TEXT_AND_FILE = "TEXT_AND_FILE", "Text + File"
+
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="assessments")
     title = models.CharField(max_length=255)
     assessment_type = models.CharField(max_length=20, choices=AssessmentType.choices)
     description = models.TextField(blank=True)
+    instructions = models.TextField(blank=True)
+    content = models.JSONField(default=list, blank=True)
+    questions = models.JSONField(default=list, blank=True)
     duration_minutes = models.PositiveIntegerField(default=60)
     total_marks = models.PositiveIntegerField(default=100)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    submission_format = models.CharField(
+        max_length=20, choices=SubmissionFormat.choices, default=SubmissionFormat.TEXT
+    )
     scheduled_at = models.DateTimeField(null=True, blank=True)
     closes_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
@@ -85,6 +105,13 @@ class AssessmentSubmission(OwnedModel):
     )
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     feedback = models.TextField(blank=True)
+    text_response = models.TextField(blank=True)
+    file_response = models.FileField(
+        upload_to=submission_upload_to,
+        null=True,
+        blank=True,
+    )
+    answers = models.JSONField(default=list, blank=True)
 
     class Meta:
         unique_together = ("assessment", "student")

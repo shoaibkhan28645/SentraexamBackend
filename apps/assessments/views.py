@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from django.db import models
 from django.db.models import QuerySet
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.settings import api_settings
 
 from apps.users.models import User
-from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD
+from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD, IsAdminOrTeacher
 from .models import Assessment, AssessmentSubmission
 from .serializers import (
     AssessmentApprovalSerializer,
@@ -43,14 +46,21 @@ class AssessmentViewSet(viewsets.ModelViewSet):
                 models.Q(created_by=user) | models.Q(course__assigned_teacher=user)
             ).distinct()
         if user.role == User.Role.STUDENT:
+            visible_statuses = [
+                Assessment.Status.APPROVED,
+                Assessment.Status.SCHEDULED,
+                Assessment.Status.IN_PROGRESS,
+                Assessment.Status.COMPLETED,
+            ]
+            department_filter = models.Q(status__in=visible_statuses)
+            if user.department_id:
+                department_filter &= models.Q(course__department_id=user.department_id)
             return qs.filter(
-                course__enrollments__student=user,
-                status__in=[
-                    Assessment.Status.APPROVED,
-                    Assessment.Status.SCHEDULED,
-                    Assessment.Status.IN_PROGRESS,
-                    Assessment.Status.COMPLETED,
-                ],
+                models.Q(
+                    course__enrollments__student=user,
+                    status__in=visible_statuses,
+                )
+                | department_filter
             ).distinct()
         return qs.none()
 
@@ -60,8 +70,10 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         return self.serializer_class
 
     def get_permissions(self):
-        if self.action in {"create", "update", "partial_update"}:
-            return [IsAuthenticated(), IsAdminHODOrTeacher()]
+        if self.action in {"create"}:
+            return [IsAuthenticated(), IsAdminOrTeacher()]
+        if self.action in {"update", "partial_update"}:
+            return [IsAuthenticated(), IsAdminOrTeacher()]
         if self.action in {"destroy"}:
             return [IsAuthenticated(), IsAdminOrHOD()]
         if self.action in {"approve", "schedule"}:
@@ -110,6 +122,7 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
     serializer_class = AssessmentSubmissionSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ("assessment", "student", "status")
+    parser_classes = [MultiPartParser, FormParser, *api_settings.DEFAULT_PARSER_CLASSES]
 
     def get_queryset(self) -> QuerySet[AssessmentSubmission]:
         user = self.request.user
@@ -126,7 +139,41 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role != User.Role.STUDENT:
             raise PermissionDenied("Only students can submit assessments.")
-        serializer.save(student=user, created_by=user, updated_by=user)
+        assessment = serializer.validated_data["assessment"]
+        now = timezone.now()
+        if assessment.scheduled_at and now < assessment.scheduled_at:
+            raise ValidationError("Submissions are not open yet for this assessment.")
+        if assessment.closes_at and now > assessment.closes_at:
+            raise ValidationError("Submission window has closed for this assessment.")
+        submission = serializer.save(student=user, created_by=user, updated_by=user)
+        if assessment.submission_format == Assessment.SubmissionFormat.ONLINE:
+            questions = assessment.questions or []
+            answers = submission.answers or []
+            score = 0
+            has_subjective = False
+            
+            for idx, question in enumerate(questions):
+                q_type = question.get("type", "MCQ")
+                q_marks = question.get("marks", 1) # Default to 1 if not specified
+                
+                if q_type == "SUBJECTIVE":
+                    has_subjective = True
+                    continue
+                
+                # Handle MCQ
+                selected = answers[idx]
+                options = question.get("options", [])
+                if isinstance(selected, int) and 0 <= selected < len(options):
+                    if options[selected].get("is_correct"):
+                        score += q_marks
+
+            submission.score = score
+            # If there are subjective questions, it needs manual grading. 
+            # Otherwise, it's fully graded.
+            if not has_subjective:
+                submission.status = AssessmentSubmission.SubmissionStatus.GRADED
+            
+            submission.save(update_fields=["score", "status", "updated_at"])
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsAdminHODOrTeacher])
     def grade(self, request, *args, **kwargs):

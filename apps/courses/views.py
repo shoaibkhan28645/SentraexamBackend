@@ -45,7 +45,16 @@ class CourseViewSet(viewsets.ModelViewSet):
                 models.Q(assigned_teacher=user) | models.Q(status=Course.Status.ACTIVE)
             ).distinct()
         if user.role == User.Role.STUDENT:
-            return qs.filter(enrollments__student=user).distinct()
+            department_filter = models.Q()
+            if user.department_id:
+                department_filter = models.Q(
+                    department_id=user.department_id, status=Course.Status.ACTIVE
+                )
+            else:
+                department_filter = models.Q(status=Course.Status.ACTIVE)
+            return qs.filter(
+                models.Q(enrollments__student=user) | department_filter
+            ).distinct()
         return qs.none().distinct()
 
     def get_serializer_class(self):

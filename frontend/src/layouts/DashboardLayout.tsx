@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Avatar, Dropdown, Badge, Button, theme } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Badge, Button, theme, Typography } from 'antd';
 import {
   DashboardOutlined,
   UserOutlined,
@@ -19,6 +19,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
 
 const { Header, Sider, Content } = Layout;
+const { Text } = Typography;
 
 const DashboardLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -26,7 +27,7 @@ const DashboardLayout: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const {
-    token: { colorBgContainer },
+    token: { colorBgContainer, colorPrimary },
   } = theme.useToken();
 
   const handleLogout = () => {
@@ -132,6 +133,7 @@ const DashboardLayout: React.FC = () => {
         trigger={null}
         collapsible
         collapsed={collapsed}
+        width={260}
         style={{
           overflow: 'auto',
           height: '100vh',
@@ -139,17 +141,24 @@ const DashboardLayout: React.FC = () => {
           left: 0,
           top: 0,
           bottom: 0,
+          background: '#001529',
+          boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
+          zIndex: 100,
         }}
       >
         <div
           style={{
-            height: 64,
+            height: 80,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: '#fff',
-            fontSize: collapsed ? 20 : 24,
-            fontWeight: 'bold',
+            fontSize: collapsed ? 24 : 28,
+            fontWeight: 700,
+            fontFamily: "'Outfit', sans-serif",
+            background: 'rgba(255,255,255,0.05)',
+            marginBottom: 16,
+            letterSpacing: collapsed ? 0 : 1,
           }}
         >
           {collapsed ? 'SE' : 'Sentraexam'}
@@ -160,17 +169,27 @@ const DashboardLayout: React.FC = () => {
           selectedKeys={[selectedKey]}
           items={getMenuItems()}
           onClick={handleMenuClick}
+          style={{
+            background: 'transparent',
+            borderRight: 0,
+            padding: '0 8px',
+          }}
         />
       </Sider>
-      <Layout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
+      <Layout style={{ marginLeft: collapsed ? 80 : 260, transition: 'margin-left 0.2s' }}>
         <Header
           style={{
             padding: '0 24px',
-            background: colorBgContainer,
+            background: 'rgba(255, 255, 255, 0.8)',
+            backdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            boxShadow: '0 1px 4px rgba(0,21,41,.08)',
+            position: 'sticky',
+            top: 0,
+            zIndex: 99,
+            borderBottom: '1px solid rgba(0,0,0,0.05)',
+            height: 72,
           }}
         >
           <Button
@@ -178,30 +197,35 @@ const DashboardLayout: React.FC = () => {
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
             style={{
-              fontSize: '16px',
-              width: 64,
-              height: 64,
+              fontSize: '18px',
+              width: 48,
+              height: 48,
             }}
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <Badge count={5} offset={[-5, 5]}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+            <Badge count={5} offset={[-5, 5]} color={colorPrimary}>
               <Button
                 type="text"
-                icon={<BellOutlined style={{ fontSize: 18 }} />}
+                shape="circle"
+                icon={<BellOutlined style={{ fontSize: 20 }} />}
                 onClick={() => navigate('/dashboard/notifications')}
               />
             </Badge>
-            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-              <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
-                <Avatar icon={<UserOutlined />} />
+            <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
+              <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 12, padding: '4px 8px', borderRadius: 8, transition: 'background 0.3s' }} className="user-dropdown">
+                <Avatar
+                  icon={<UserOutlined />}
+                  style={{ backgroundColor: colorPrimary, verticalAlign: 'middle' }}
+                  size="large"
+                />
                 {user && (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 500 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
+                    <Text strong style={{ fontSize: 14 }}>
                       {user.first_name} {user.last_name}
-                    </span>
-                    <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
                       {user.role}
-                    </span>
+                    </Text>
                   </div>
                 )}
               </div>
@@ -210,11 +234,10 @@ const DashboardLayout: React.FC = () => {
         </Header>
         <Content
           style={{
-            margin: '24px 16px',
-            padding: 24,
+            margin: '24px',
+            padding: 0,
             minHeight: 280,
-            background: colorBgContainer,
-            borderRadius: 8,
+            borderRadius: 12,
           }}
         >
           <Outlet />

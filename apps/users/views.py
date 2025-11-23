@@ -68,6 +68,17 @@ class UserViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save()
 
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="me",
+        permission_classes=[IsAuthenticated],
+    )
+    def me(self, request, *args, **kwargs):
+        """Return the authenticated user's profile regardless of role."""
+        serializer = UserSerializer(request.user, context=self.get_serializer_context())
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=["post"], url_path="activate", permission_classes=[AllowAny])
     def activate(self, request, *args, **kwargs):
         serializer = ActivationConfirmSerializer(data=request.data)

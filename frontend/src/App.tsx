@@ -1,9 +1,9 @@
-import React from 'react';
 import { RouterProvider, createBrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
 import { routes } from './routes';
+import theme from './theme/themeConfig';
 
 // Create QueryClient instance
 const queryClient = new QueryClient({
@@ -22,14 +22,7 @@ const router = createBrowserRouter(routes);
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider
-        theme={{
-          token: {
-            colorPrimary: '#1890ff',
-            borderRadius: 6,
-          },
-        }}
-      >
+      <ConfigProvider theme={theme}>
         <AuthProvider>
           <RouterProvider router={router} />
         </AuthProvider>

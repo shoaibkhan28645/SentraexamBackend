@@ -90,4 +90,33 @@ class AssessmentFactory(factory.django.DjangoModelFactory):
     title = factory.Faker("sentence", nb_words=5)
     assessment_type = Assessment.AssessmentType.EXAM
     description = factory.Faker("paragraph")
+    instructions = factory.Faker("paragraph")
+    content = factory.LazyFunction(
+        lambda: [
+            {
+                "title": "Overview",
+                "body": "Please follow the instructions carefully.",
+                "content_type": "INSTRUCTION",
+            }
+        ]
+    )
+    @factory.lazy_attribute
+    def submission_format(self):
+        if self.assessment_type == Assessment.AssessmentType.EXAM:
+            return Assessment.SubmissionFormat.ONLINE
+        return Assessment.SubmissionFormat.TEXT
+    @factory.lazy_attribute
+    def questions(self):
+        if self.assessment_type == Assessment.AssessmentType.EXAM:
+            return [
+                {
+                    "prompt": "What is 2 + 2?",
+                    "options": [
+                        {"text": "3", "is_correct": False},
+                        {"text": "4", "is_correct": True},
+                        {"text": "5", "is_correct": False},
+                    ],
+                }
+            ]
+        return []
     created_by = factory.SubFactory(UserFactory, role=User.Role.TEACHER)

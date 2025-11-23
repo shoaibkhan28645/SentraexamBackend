@@ -1,10 +1,11 @@
 // User Types
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  HOD = 'HOD',
-  TEACHER = 'TEACHER',
-  STUDENT = 'STUDENT',
-}
+export const UserRole = {
+  ADMIN: 'ADMIN',
+  HOD: 'HOD',
+  TEACHER: 'TEACHER',
+  STUDENT: 'STUDENT',
+} as const;
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 export interface User {
   id: number;
@@ -99,12 +100,13 @@ export interface DepartmentMembership {
 }
 
 // Course Types
-export enum CourseStatus {
-  DRAFT = 'DRAFT',
-  PENDING_APPROVAL = 'PENDING_APPROVAL',
-  ACTIVE = 'ACTIVE',
-  ARCHIVED = 'ARCHIVED',
-}
+export const CourseStatus = {
+  DRAFT: 'DRAFT',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  ACTIVE: 'ACTIVE',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+export type CourseStatus = (typeof CourseStatus)[keyof typeof CourseStatus];
 
 export interface Course {
   id: number;
@@ -133,11 +135,12 @@ export interface CreateCoursePayload {
   assigned_teacher?: number | null;
 }
 
-export enum EnrollmentStatus {
-  ENROLLED = 'ENROLLED',
-  COMPLETED = 'COMPLETED',
-  DROPPED = 'DROPPED',
-}
+export const EnrollmentStatus = {
+  ENROLLED: 'ENROLLED',
+  COMPLETED: 'COMPLETED',
+  DROPPED: 'DROPPED',
+} as const;
+export type EnrollmentStatus = (typeof EnrollmentStatus)[keyof typeof EnrollmentStatus];
 
 export interface CourseEnrollment {
   id: number;
@@ -151,38 +154,71 @@ export interface CourseEnrollment {
 }
 
 // Assessment Types
-export enum AssessmentType {
-  EXAM = 'EXAM',
-  QUIZ = 'QUIZ',
-  ASSIGNMENT = 'ASSIGNMENT',
-  PROJECT = 'PROJECT',
+export const AssessmentType = {
+  EXAM: 'EXAM',
+  QUIZ: 'QUIZ',
+  ASSIGNMENT: 'ASSIGNMENT',
+  PROJECT: 'PROJECT',
+} as const;
+export type AssessmentType = (typeof AssessmentType)[keyof typeof AssessmentType];
+
+export const AssessmentStatus = {
+  DRAFT: 'DRAFT',
+  SUBMITTED: 'SUBMITTED',
+  APPROVED: 'APPROVED',
+  SCHEDULED: 'SCHEDULED',
+  IN_PROGRESS: 'IN_PROGRESS',
+  COMPLETED: 'COMPLETED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type AssessmentStatus = (typeof AssessmentStatus)[keyof typeof AssessmentStatus];
+
+export const AssessmentSubmissionFormat = {
+  ONLINE: 'ONLINE',
+  TEXT: 'TEXT',
+  FILE: 'FILE',
+  TEXT_AND_FILE: 'TEXT_AND_FILE',
+} as const;
+export type AssessmentSubmissionFormat =
+  (typeof AssessmentSubmissionFormat)[keyof typeof AssessmentSubmissionFormat];
+
+export interface AssessmentContentBlock {
+  title: string;
+  body: string;
+  content_type: 'INSTRUCTION' | 'QUESTION' | 'RESOURCE';
 }
 
-export enum AssessmentStatus {
-  DRAFT = 'DRAFT',
-  SUBMITTED = 'SUBMITTED',
-  APPROVED = 'APPROVED',
-  SCHEDULED = 'SCHEDULED',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
+export interface AssessmentQuestionOption {
+  text: string;
+  is_correct: boolean;
+}
+
+export interface AssessmentQuestion {
+  prompt: string;
+  type?: 'MCQ' | 'SUBJECTIVE';
+  marks?: number;
+  options: AssessmentQuestionOption[];
 }
 
 export interface Assessment {
-  id: number;
-  course: number;
+  id: string;
+  course: string;
   course_code: string;
   title: string;
   assessment_type: AssessmentType;
   description: string;
+  instructions: string;
+  content: AssessmentContentBlock[];
+  questions: AssessmentQuestion[];
   duration_minutes: number;
   total_marks: number;
   status: AssessmentStatus;
+  submission_format: AssessmentSubmissionFormat;
   scheduled_at: string | null;
   closes_at: string | null;
-  created_by: number;
+  created_by: string;
   created_by_email: string;
-  approved_by: number | null;
+  approved_by: string | null;
   approved_by_email: string | null;
   approved_at: string | null;
   created_at: string;
@@ -190,75 +226,69 @@ export interface Assessment {
 }
 
 export interface CreateAssessmentPayload {
-  course: number;
+  course: string;
   title: string;
   assessment_type: AssessmentType;
   description?: string;
+  instructions?: string;
+  content: AssessmentContentBlock[];
+  questions?: AssessmentQuestion[];
   duration_minutes?: number;
   total_marks?: number;
   status?: AssessmentStatus;
+  submission_format: AssessmentSubmissionFormat;
   scheduled_at?: string | null;
   closes_at?: string | null;
 }
 
-export enum SubmissionStatus {
-  SUBMITTED = 'SUBMITTED',
-  GRADED = 'GRADED',
-  LATE = 'LATE',
-}
+export const SubmissionStatus = {
+  SUBMITTED: 'SUBMITTED',
+  GRADED: 'GRADED',
+  LATE: 'LATE',
+} as const;
+export type SubmissionStatus = (typeof SubmissionStatus)[keyof typeof SubmissionStatus];
 
 export interface AssessmentSubmission {
-  id: number;
-  assessment: number;
+  id: string;
+  assessment: string;
   assessment_title: string;
-  student: number;
+  student: string;
   student_email: string;
   status: SubmissionStatus;
   score: number | null;
   feedback: string;
+  text_response: string;
+  file_response: string | null;
+  answers: (number | string | null)[];
   submitted_at: string;
   created_at: string;
   updated_at: string;
 }
 
+export interface SubmitAssessmentPayload {
+  assessmentId: string;
+  textResponse?: string;
+  answers?: (number | string | null)[];
+  file?: File;
+}
+
 // Notification Types
-export enum AnnouncementAudience {
-  ALL = 'ALL',
-  DEPARTMENT = 'DEPARTMENT',
-  COURSE = 'COURSE',
-  CUSTOM = 'CUSTOM',
-}
+export const AnnouncementAudience = {
+  ALL: 'ALL',
+  DEPARTMENT: 'DEPARTMENT',
+  COURSE: 'COURSE',
+  CUSTOM: 'CUSTOM',
+} as const;
+export type AnnouncementAudience = (typeof AnnouncementAudience)[keyof typeof AnnouncementAudience];
 
-export enum AnnouncementStatus {
-  DRAFT = 'DRAFT',
-  SCHEDULED = 'SCHEDULED',
-  SENT = 'SENT',
-  CANCELLED = 'CANCELLED',
-}
+export const AnnouncementStatus = {
+  DRAFT: 'DRAFT',
+  SCHEDULED: 'SCHEDULED',
+  SENT: 'SENT',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type AnnouncementStatus = (typeof AnnouncementStatus)[keyof typeof AnnouncementStatus];
 
-export interface Announcement {
-  id: number;
-  title: string;
-  message: string;
-  audience: AnnouncementAudience;
-  status: AnnouncementStatus;
-  department: number | null;
-  course: number | null;
-  scheduled_for: string | null;
-  sent_at: string | null;
-  created_at: string;
-  updated_at: string;
-  recipients?: AnnouncementRecipient[];
-}
-
-export interface AnnouncementRecipient {
-  id: number;
-  announcement: number;
-  user: number;
-  user_email: string;
-  delivered_at: string | null;
-  read_at: string | null;
-}
 
 export interface Notification {
   id: number;
@@ -271,36 +301,17 @@ export interface Notification {
 }
 
 // Document Types
-export enum DocumentAccessLevel {
-  INSTITUTION = 'INSTITUTION',
-  DEPARTMENT = 'DEPARTMENT',
-  PERSONAL = 'PERSONAL',
-}
+export const DocumentAccessLevel = {
+  PRIVATE: 'PRIVATE',
+  DEPARTMENT: 'DEPARTMENT',
+  INSTITUTION: 'INSTITUTION',
+} as const;
+export type DocumentAccessLevel = (typeof DocumentAccessLevel)[keyof typeof DocumentAccessLevel];
 
-export interface Document {
-  id: number;
-  title: string;
-  description: string;
-  file: string;
-  owner: number;
-  owner_email: string;
-  category: number;
-  category_name: string;
-  department: number | null;
-  access_level: DocumentAccessLevel;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface DocumentCategory {
-  id: number;
-  name: string;
-  description: string;
-}
 
 // Academic Calendar Types
 export interface AcademicYear {
-  id: number;
+  id: string;
   name: string;
   start_date: string;
   end_date: string;
@@ -310,8 +321,8 @@ export interface AcademicYear {
 }
 
 export interface AcademicTerm {
-  id: number;
-  academic_year: number;
+  id: string;
+  academic_year: string;
   academic_year_name: string;
   name: string;
   start_date: string;
@@ -322,17 +333,82 @@ export interface AcademicTerm {
 }
 
 export interface CalendarEvent {
-  id: number;
+  id: string;
   title: string;
   description: string;
   event_type: string;
   start_at: string;
   end_at: string;
-  academic_term: number;
-  department: number | null;
-  course: number | null;
+  academic_term: string;
+  department: string | null;
+  course: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateCalendarEventPayload {
+  title: string;
+  description?: string;
+  event_type: string;
+  start_at: string;
+  end_at: string;
+  academic_term: string;
+  department?: string | null;
+  course?: string | null;
+}
+
+// Document Types
+export interface DocumentCategory {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface Document {
+  id: string;
+  title: string;
+  description: string;
+  file: string;
+  category: string;
+  access_level: string;
+  department: string | null;
+  course: string | null;
+  uploaded_by: string;
+  uploaded_by_email: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDocumentPayload {
+  title: string;
+  description: string;
+  file: File;
+  category?: string | null;
+  access_level: string;
+  department?: string | null;
+  course?: string | null;
+}
+
+// Notification Types
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  audience: string;
+  department: string | null;
+  course: string | null;
+  created_by: string;
+  created_by_email: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAnnouncementPayload {
+  title: string;
+  content: string;
+  audience: string;
+  department?: string | null;
+  course?: string | null;
 }
 
 // Pagination Types

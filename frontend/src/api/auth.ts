@@ -29,10 +29,7 @@ export const logout = (): void => {
 
 // Get current user profile
 export const getCurrentUser = async (): Promise<User> => {
-  // This assumes there's a /me endpoint or we get user from token
-  // For now, we'll need to implement this based on your backend
-  // If there's no /me endpoint, we can decode JWT or call /auth/accounts/ with filter
-  const { data } = await apiClient.get<User>('/auth/me/');
+  const { data } = await apiClient.get<User>('/auth/accounts/me/');
   return data;
 };
 

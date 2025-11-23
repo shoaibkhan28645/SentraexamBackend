@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, Button, Space, Input, Modal, message, Typography, Tag, Alert } from 'antd';
+import { Table, Button, Space, Input, message, Typography, Tag, Alert, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useDepartments, useDeleteDepartment } from '../../../api/departments';
@@ -7,8 +7,6 @@ import type { Department } from '../../../types/index';
 import type { ColumnType } from 'antd/es/table';
 
 const { Title } = Typography;
-const { confirm } = Modal;
-
 const DepartmentsListPage: React.FC = () => {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -26,22 +24,14 @@ const DepartmentsListPage: React.FC = () => {
     );
   }
 
-  const handleDelete = (department: Department) => {
-    confirm({
-      title: 'Delete Department',
-      content: `Are you sure you want to delete ${department.name}?`,
-      okText: 'Delete',
-      okType: 'danger',
-      onOk: async () => {
-        try {
-          await deleteMutation.mutateAsync(department.id);
-          message.success('Department deleted successfully');
-          refetch();
-        } catch (error: any) {
-          message.error(error.response?.data?.detail || 'Failed to delete department');
-        }
-      },
-    });
+  const handleDelete = async (department: Department) => {
+    try {
+      await deleteMutation.mutateAsync(department.id);
+      message.success('Department deleted successfully');
+      refetch();
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to delete department');
+    }
   };
 
   const columns: ColumnType<Department>[] = [
@@ -99,14 +89,18 @@ const DepartmentsListPage: React.FC = () => {
           >
             Edit
           </Button>
-          <Button
-            type="link"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete(record)}
+          <Popconfirm
+            title="Delete Department"
+            description={`Are you sure you want to delete ${record.name}?`}
+            okText="Delete"
+            okType="danger"
+            okButtonProps={{ loading: deleteMutation.isPending }}
+            onConfirm={() => handleDelete(record)}
           >
-            Delete
-          </Button>
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              Delete
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

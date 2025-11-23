@@ -5,6 +5,7 @@ from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from apps.users.models import User
 from apps.users.permissions import IsAdminOrHOD
@@ -20,12 +21,14 @@ class DocumentCategoryViewSet(viewsets.ModelViewSet):
     queryset = DocumentCategory.objects.all()
     serializer_class = DocumentCategorySerializer
     permission_classes = [IsAuthenticated, IsAdminOrHOD]
+    parser_classes = [MultiPartParser, FormParser]
     search_fields = ("name",)
 
 
 class DocumentViewSet(viewsets.ModelViewSet):
     serializer_class = DocumentSerializer
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
     filterset_fields = ("department", "access_level", "category")
     search_fields = ("title", "description")
 

@@ -26,6 +26,29 @@ import DepartmentEditPage from '../features/departments/pages/DepartmentEditPage
 
 // Protected Route Component
 import ProtectedRoute from '../components/ProtectedRoute';
+import ComingSoonPage from '../pages/ComingSoonPage';
+
+// Course Pages
+import CoursesListPage from '../features/courses/pages/CoursesListPage';
+import CourseFormPage from '../features/courses/pages/CourseFormPage';
+import CourseDetailPage from '../features/courses/pages/CourseDetailPage';
+
+// Assessment Pages
+import AssessmentsListPage from '../features/assessments/pages/AssessmentsListPage';
+import AssessmentFormPage from '../features/assessments/pages/AssessmentFormPage';
+import AssessmentDetailPage from '../features/assessments/pages/AssessmentDetailPage';
+import ExamTakingPage from '../features/assessments/pages/ExamTakingPage';
+
+// Notification Pages
+import AnnouncementsListPage from '../features/notifications/pages/AnnouncementsListPage';
+import AnnouncementFormPage from '../features/notifications/pages/AnnouncementFormPage';
+
+// Document Pages
+import DocumentsListPage from '../features/documents/pages/DocumentsListPage';
+import DocumentFormPage from '../features/documents/pages/DocumentFormPage';
+
+// Calendar Page
+import CalendarPage from '../features/calendar/pages/CalendarPage';
 
 export const routes: RouteObject[] = [
   {
@@ -115,6 +138,171 @@ export const routes: RouteObject[] = [
         element: (
           <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
             <DepartmentEditPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Courses routes
+      {
+        path: 'courses',
+        element: (
+          <ProtectedRoute
+            allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}
+          >
+            <CoursesListPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'courses/new',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <CourseFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'courses/:id/edit',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <CourseFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'courses/:id',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}>
+            <CourseDetailPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Assessments routes
+      {
+        path: 'assessments',
+        element: (
+          <ProtectedRoute
+            allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}
+          >
+            <AssessmentsListPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'assessments/new',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <AssessmentFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'assessments/:id/edit',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <AssessmentFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'assessments/:id',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}>
+            <AssessmentDetailPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'assessments/:id/take',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.STUDENT]}>
+            <ExamTakingPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Notifications routes
+      {
+        path: 'notifications',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
+            <AnnouncementsListPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'notifications/new',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
+            <AnnouncementFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'notifications/:id/edit',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
+            <AnnouncementFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Documents routes
+      {
+        path: 'documents',
+        element: (
+          <ProtectedRoute
+            allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}
+          >
+            <DocumentsListPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'documents/new',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <DocumentFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'documents/:id/edit',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
+            <DocumentFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Calendar route
+      {
+        path: 'calendar',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}>
+            <CalendarPage />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'profile',
+        element: (
+          <ProtectedRoute>
+            <ComingSoonPage
+              title="Profile"
+              description="Profile settings are coming soon."
+              actionLabel="Back to dashboard"
+              actionTo="/dashboard"
+            />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'settings',
+        element: (
+          <ProtectedRoute>
+            <ComingSoonPage
+              title="Settings"
+              description="Application settings will be available shortly."
+              actionLabel="Back to dashboard"
+              actionTo="/dashboard"
+            />
           </ProtectedRoute>
         ),
       },

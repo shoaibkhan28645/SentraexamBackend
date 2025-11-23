@@ -20,6 +20,10 @@ class IsAdmin(RolePermission):
     allowed_roles = (User.Role.ADMIN,)
 
 
+class IsAdminOrTeacher(RolePermission):
+    allowed_roles = (User.Role.ADMIN, User.Role.TEACHER)
+
+
 class IsAdminOrHOD(RolePermission):
     allowed_roles = (User.Role.ADMIN, User.Role.HOD)
 

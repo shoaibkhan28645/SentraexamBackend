@@ -15,16 +15,28 @@ Sentraexam is a Django-based academic management platform with role-based access
 docker-compose up --build
 
 # Apply migrations
-docker-compose exec web python manage.py migrate
+docker-compose exec backend python manage.py migrate
 
 # Create superuser
-docker-compose exec web python manage.py createsuperuser
+docker-compose exec backend python manage.py createsuperuser
 
 # Run commands in container
-docker-compose exec web python manage.py <command>
+docker-compose exec backend python manage.py <command>
+
+# View logs
+docker-compose logs -f backend
+docker-compose logs -f frontend
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
 ```
 
 ### Local Development
+
+#### Backend
 
 ```bash
 # Run development server
@@ -47,11 +59,34 @@ make format  # Runs black and isort
 make lint  # Runs flake8 and mypy
 ```
 
+#### Frontend
+
+```bash
+# Navigate to frontend directory
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Run linting
+npm run lint
+
+# Preview production build
+npm run preview
+```
+
 ## Architecture
 
 ### Settings Configuration
 
 Settings are split by environment in `config/settings/`:
+
 - `base.py` - Shared settings
 - `dev.py` - Development overrides
 - `prod.py` - Production settings
@@ -68,6 +103,7 @@ User roles: `ADMIN`, `HOD`, `TEACHER`, `STUDENT`
 ### Base Model Hierarchy
 
 All models inherit from abstract bases in `apps/common/models.py`:
+
 - `TimeStampedModel` - Adds `created_at` and `updated_at` timestamps
 - `UUIDModel` - Uses UUID primary keys instead of integer IDs
 - `BaseModel` - Combines both UUID and timestamps
@@ -89,11 +125,13 @@ The project follows Django's app-based architecture:
 ### Authentication & Permissions
 
 Uses Django REST Framework with JWT (SimpleJWT):
+
 - Access tokens expire in 30 minutes
 - Refresh tokens expire in 7 days with rotation enabled
 - Blacklisting enabled after rotation
 
 Custom permission classes in `apps/users/permissions.py`:
+
 - `IsAdmin` - Admin role only
 - `IsAdminOrHOD` - Admin or HOD roles
 - `IsSelfAdminOrDepartmentHead` - User can access own data, admins can access all, HODs can access their department
@@ -103,6 +141,7 @@ Object-level permissions use django-guardian.
 ### API Documentation
 
 OpenAPI schema generation via drf-spectacular:
+
 - Schema endpoint: `/api/schema/`
 - Swagger UI: `/api/docs/`
 - ReDoc: `/api/redoc/`
@@ -129,10 +168,13 @@ All API routes are prefixed with `/api/` and organized by app.
 - flake8 for linting
 - mypy for type checking
 - Pre-commit hooks configured in `.pre-commit-config.yaml`
+- ESLint for frontend TypeScript/React code
+- Package management via `pyproject.toml` (Python) and `package.json` (Node.js)
 
 ### Model Workflows
 
 **Assessment Lifecycle:**
+
 1. Created as `DRAFT` by teacher
 2. `submit_for_approval()` → `SUBMITTED`
 3. `approve(user)` → `APPROVED` (by HOD/Admin)
@@ -153,3 +195,32 @@ New users are inactive by default. Create `ActivationToken` with `ActivationToke
 - ViewSets use `get_queryset()` to filter based on user role
 - Model methods handle state transitions (e.g., `assessment.approve(user)`)
 - Structured logging configured via structlog
+
+## Environment Setup
+
+### Initial Setup
+
+1. **Copy environment files:**
+   ```bash
+   cp .env.example .env
+   cp frontend/.env.example frontend/.env
+   ```
+
+2. **Update environment variables** in `.env` and `frontend/.env` as needed
+
+3. **Start with Docker (recommended):**
+   ```bash
+   ```
+   docker-compose up --build
+
+4. **Or setup locally:**
+   - Install Python dependencies (no requirements.txt, uses pyproject.toml)
+   - Install Node.js dependencies in frontend/
+   - Run PostgreSQL and Redis locally
+
+### Development URLs
+
+- **Backend API**: http://localhost:8000
+- **Frontend**: http://localhost:5173
+- **API Documentation**: http://localhost:8000/api/docs/
+- **Django Admin**: http://localhost:8000/admin/
