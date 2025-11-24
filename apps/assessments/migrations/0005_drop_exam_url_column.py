@@ -4,7 +4,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("assessments", "0004_add_questions_answers"),
+        ("assessments", "0003_assessment_content_fields"),
     ]
 
     operations = [
