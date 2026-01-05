@@ -14,7 +14,7 @@ export interface User {
   first_name: string;
   last_name: string;
   role: UserRole;
-  department: number | null;
+  department: string | null;
   department_name?: string;
   phone_number: string;
   is_active: boolean;
@@ -28,7 +28,7 @@ export interface CreateUserPayload {
   first_name: string;
   last_name: string;
   role: UserRole;
-  department?: number | null;
+  department?: string | null;
   phone_number?: string;
   password: string;
   is_active?: boolean;
@@ -38,7 +38,7 @@ export interface UpdateUserPayload {
   first_name?: string;
   last_name?: string;
   role?: UserRole;
-  department?: number | null;
+  department?: string | null;
   phone_number?: string;
 }
 
@@ -69,7 +69,7 @@ export interface PasswordResetConfirm {
 
 // Department Types
 export interface Department {
-  id: number;
+  id: string;
   name: string;
   code: string;
   description: string;
@@ -87,8 +87,8 @@ export interface CreateDepartmentPayload {
 }
 
 export interface DepartmentMembership {
-  id: number;
-  department: number;
+  id: string;
+  department: string;
   department_name: string;
   user: number;
   user_email: string;
@@ -109,8 +109,8 @@ export const CourseStatus = {
 export type CourseStatus = (typeof CourseStatus)[keyof typeof CourseStatus];
 
 export interface Course {
-  id: number;
-  department: number;
+  id: string;
+  department: string;
   department_name: string;
   code: string;
   title: string;
@@ -126,7 +126,7 @@ export interface Course {
 }
 
 export interface CreateCoursePayload {
-  department: number;
+  department: string;
   code: string;
   title: string;
   description?: string;
@@ -143,11 +143,13 @@ export const EnrollmentStatus = {
 export type EnrollmentStatus = (typeof EnrollmentStatus)[keyof typeof EnrollmentStatus];
 
 export interface CourseEnrollment {
-  id: number;
-  course: number;
+  id: string;
+  course: string;
   course_code: string;
   student: number;
   student_email: string;
+  student_first_name: string;
+  student_last_name: string;
   status: EnrollmentStatus;
   enrolled_at: string;
   completed_at: string | null;
@@ -223,6 +225,10 @@ export interface Assessment {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+  // Statistics fields
+  total_submissions?: number;
+  average_score?: number | null;
+  submission_rate?: number;
 }
 
 export interface CreateAssessmentPayload {

@@ -30,6 +30,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env.bool("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
     "apps.notifications",
     "apps.documents",
     "apps.academic_calendar",
+    "apps.proctoring",
     "guardian",
 ]
 

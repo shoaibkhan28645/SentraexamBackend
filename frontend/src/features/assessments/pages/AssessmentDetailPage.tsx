@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Card,
   Descriptions,
@@ -12,10 +12,16 @@ import {
   Input,
   message,
   Radio,
+  Table,
+  Modal,
+  Image,
+  Statistic,
+  Row,
+  Col,
 } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
-import { EditOutlined, ArrowLeftOutlined, CalendarOutlined } from '@ant-design/icons';
-import { useAssessment, useSubmitAssessmentWork } from '../../../api/assessments';
+import { EditOutlined, ArrowLeftOutlined, CalendarOutlined, UnorderedListOutlined, WarningOutlined } from '@ant-design/icons';
+import { useAssessment, useSubmitAssessmentWork, useAssessmentSubmissions } from '../../../api/assessments';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
   AssessmentStatus,
@@ -32,6 +38,8 @@ const AssessmentDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const assessmentId = id || undefined;
+  const { user } = useAuth();
+  const [showSubmissions, setShowSubmissions] = useState(false);
 
   const { data: assessment, isLoading, error } = useAssessment(assessmentId!);
 
@@ -74,6 +82,7 @@ const AssessmentDetailPage: React.FC = () => {
   const hasInstructions = Boolean(assessment.instructions);
   const hasContent = Boolean(assessment.content && assessment.content.length > 0);
   const hasQuestions = Boolean(assessment.questions && assessment.questions.length > 0);
+  const isTeacher = user?.role === UserRole.TEACHER || user?.role === UserRole.ADMIN || user?.role === UserRole.HOD;
 
   const statusColors: Record<AssessmentStatus, string> = {
     [AssessmentStatus.DRAFT]: 'default',
@@ -115,6 +124,15 @@ const AssessmentDetailPage: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>Assessment Details</Title>
         </Space>
         <Space>
+          {isTeacher && (
+            <Button
+              icon={<UnorderedListOutlined />}
+              onClick={() => setShowSubmissions(!showSubmissions)}
+              type={showSubmissions ? 'default' : 'primary'}
+            >
+              {showSubmissions ? 'Hide Submissions' : 'View Submissions'}
+            </Button>
+          )}
           {assessment.status === AssessmentStatus.APPROVED && (
             <Button
               type="primary"
@@ -133,6 +151,10 @@ const AssessmentDetailPage: React.FC = () => {
           </Button>
         </Space>
       </div>
+
+      {showSubmissions && isTeacher && (
+        <SubmissionsPanel assessmentId={assessment.id} assessment={assessment} />
+      )}
 
       <Card>
         <Descriptions
@@ -205,7 +227,7 @@ const AssessmentDetailPage: React.FC = () => {
       {hasContent && (
         <Card title="Content" style={{ marginTop: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            {assessment.content.map((block, index) => (
+            {(assessment.content || []).map((block, index) => (
               <Card
                 key={`${block.title}-${index}`}
                 type="inner"
@@ -222,11 +244,11 @@ const AssessmentDetailPage: React.FC = () => {
       {hasQuestions && (
         <Card title="Questions" style={{ marginTop: 16 }}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            {assessment.questions.map((question, index) => (
+            {(assessment.questions || []).map((question, index) => (
               <Card key={index} type="inner" title={`Question ${index + 1}`}>
                 <Paragraph strong>{question.prompt}</Paragraph>
                 <Space direction="vertical" style={{ width: '100%' }}>
-                  {question.options.map((option, optIndex) => (
+                  {(question.options || []).map((option, optIndex) => (
                     <Tag
                       key={optIndex}
                       color={option.is_correct ? 'green' : undefined}
@@ -246,13 +268,13 @@ const AssessmentDetailPage: React.FC = () => {
       <Card title="Assessment Statistics" style={{ marginTop: 16 }}>
         <Descriptions column={3}>
           <Descriptions.Item label="Total Submissions">
-            <Text strong>0</Text>
+            <Text strong>{assessment.total_submissions || 0}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="Average Score">
-            <Text strong>-</Text>
+            <Text strong>{assessment.average_score !== undefined && assessment.average_score !== null ? assessment.average_score : '-'}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="Submission Rate">
-            <Text strong>-</Text>
+            <Text strong>{assessment.submission_rate !== undefined ? `${assessment.submission_rate}%` : '-'}</Text>
           </Descriptions.Item>
         </Descriptions>
       </Card>
@@ -263,6 +285,199 @@ const AssessmentDetailPage: React.FC = () => {
 };
 
 export default AssessmentDetailPage;
+
+const SubmissionsPanel: React.FC<{ assessmentId: string; assessment?: AssessmentModel }> = ({ assessmentId, assessment }) => {
+  const { data: submissionsResponse, isLoading } = useAssessmentSubmissions({ assessment: assessmentId });
+  const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
+
+  // Helper to ensure image URL is absolute
+  const getImageUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    // Prepend backend URL for relative paths
+    const backendUrl = import.meta.env.VITE_API_BASE_URL?.replace('/api', '') || 'http://localhost:8000';
+    return `${backendUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
+
+  if (isLoading) {
+    return <Card title="Submissions" style={{ marginBottom: 16 }}><Spin /></Card>;
+  }
+
+  const submissions = submissionsResponse?.results || [];
+
+  const columns = [
+    {
+      title: 'Student',
+      dataIndex: 'student_email',
+      key: 'student',
+    },
+    {
+      title: 'Submitted At',
+      dataIndex: 'submitted_at',
+      key: 'submitted_at',
+      render: (date: string) => new Date(date).toLocaleString(),
+    },
+    {
+      title: 'Score',
+      dataIndex: 'score',
+      key: 'score',
+      render: (score: number | null) => score !== null ? score : 'Not graded',
+    },
+    {
+      title: 'Violations',
+      dataIndex: 'total_violations',
+      key: 'violations',
+      render: (count: number) => (
+        <Tag color={count > 0 ? 'red' : 'green'} icon={count > 0 ? <WarningOutlined /> : null}>
+          {count} violations
+        </Tag>
+      ),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_: any, record: any) => (
+        <Button size="small" onClick={() => setSelectedSubmission(record)}>
+          View Details
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <Card title="Student Submissions" style={{ marginBottom: 16 }}>
+        <Table
+          columns={columns}
+          dataSource={submissions}
+          rowKey="id"
+          pagination={{ pageSize: 10 }}
+        />
+      </Card>
+
+      <Modal
+        title={`Submission Details - ${selectedSubmission?.student_email}`}
+        open={!!selectedSubmission}
+        onCancel={() => setSelectedSubmission(null)}
+        footer={null}
+        width={900}
+      >
+        {selectedSubmission && (
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <Row gutter={16}>
+              <Col span={8}>
+                <Statistic title="Total Violations" value={selectedSubmission.total_violations} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="Score" value={selectedSubmission.score || 'N/A'} />
+              </Col>
+              <Col span={8}>
+                <Statistic
+                  title="Submitted"
+                  value={new Date(selectedSubmission.submitted_at).toLocaleDateString()}
+                />
+              </Col>
+            </Row>
+
+            {/* Answers Section */}
+            {assessment && assessment.questions && (
+              <Card title="Answers" size="small">
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {assessment.questions.map((question, index) => {
+                    const answer = selectedSubmission.answers?.[index];
+                    let answerDisplay = <Text type="secondary">No answer</Text>;
+
+                    if (question.type === 'MCQ') {
+                      if (answer !== undefined && answer !== null && answer !== -1) {
+                        const option = question.options?.[answer];
+                        const isCorrect = option?.is_correct;
+                        answerDisplay = (
+                          <Space>
+                            <Text strong>Selected:</Text>
+                            <Tag color={isCorrect ? 'green' : 'red'}>
+                              {option?.text || `Option ${answer + 1}`}
+                            </Tag>
+                          </Space>
+                        );
+                      }
+                    } else {
+                      // Subjective or other types
+                      if (answer) {
+                        answerDisplay = (
+                          <div>
+                            <Text strong>Response:</Text>
+                            <Paragraph style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{answer}</Paragraph>
+                          </div>
+                        );
+                      }
+                    }
+
+                    return (
+                      <Card key={index} type="inner" size="small" title={`Q${index + 1}: ${question.prompt}`}>
+                        {answerDisplay}
+                        {question.type === 'MCQ' && (
+                          <div style={{ marginTop: 8 }}>
+                            <Text type="secondary">Correct Answer: </Text>
+                            {question.options?.filter(o => o.is_correct).map((o, i) => (
+                              <Tag key={i} color="blue">{o.text}</Tag>
+                            ))}
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
+                </Space>
+              </Card>
+            )}
+
+            {selectedSubmission.violations_by_type && Object.keys(selectedSubmission.violations_by_type).length > 0 && (
+              <Card title="Violation Breakdown" size="small">
+                <Space wrap>
+                  {Object.entries(selectedSubmission.violations_by_type).map(([type, count]: [string, any]) => (
+                    <Tag key={type} color="red">
+                      {type.replace(/_/g, ' ')}: {count}
+                    </Tag>
+                  ))}
+                </Space>
+              </Card>
+            )}
+
+            {selectedSubmission.proctoring_snapshots && selectedSubmission.proctoring_snapshots.length > 0 && (
+              <Card title={`Proctoring Snapshots (${selectedSubmission.proctoring_snapshots.length})`} size="small">
+                <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+                  <Image.PreviewGroup>
+                    {selectedSubmission.proctoring_snapshots.map((snap: any) => (
+                      <Card
+                        key={snap.id}
+                        type="inner"
+                        size="small"
+                        title={new Date(snap.captured_at).toLocaleTimeString()}
+                        extra={
+                          <Space>
+                            {snap.is_violation && <Tag color="red">Violation</Tag>}
+                            <Tag>{snap.faces_detected} faces</Tag>
+                          </Space>
+                        }
+                        style={{ marginBottom: 8 }}
+                      >
+                        <Image
+                          src={getImageUrl(snap.image_url)}
+                          alt="Proctoring snapshot"
+                          width={200}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </Card>
+                    ))}
+                  </Image.PreviewGroup>
+                </div>
+              </Card>
+            )}
+          </Space>
+        )}
+      </Modal>
+    </>
+  );
+};
 
 const StudentSubmissionPanel: React.FC<{ assessment: AssessmentModel }> = ({ assessment }) => {
   const { user } = useAuth();

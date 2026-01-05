@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.db.models import QuerySet
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from apps.users.permissions import IsAdmin, IsAdminOrHOD, IsSelfAdminOrDepartmentHead
+from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD, IsSelfAdminOrDepartmentHead
 from .models import ActivationToken, User
 from .serializers import (
     ActivationConfirmSerializer,
@@ -35,9 +36,13 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in {"activate", "password_reset", "password_reset_confirm"}:
             return [AllowAny()]
-        if self.action in {"retrieve", "partial_update", "update"}:
+        if self.action == "retrieve":
+            return [IsAuthenticated()]  # Teachers can view students (read-only)
+        if self.action in {"partial_update", "update"}:
             return [IsAuthenticated(), IsSelfAdminOrDepartmentHead()]
-        if self.action in {"list", "create", "destroy"}:
+        if self.action == "list":
+            return [IsAuthenticated(), IsAdminHODOrTeacher()]  # Teachers can list students in their courses
+        if self.action in {"create", "destroy"}:
             return [IsAuthenticated(), IsAdmin()]
         return [permission() for permission in self.permission_classes]
 
@@ -60,6 +65,17 @@ class UserViewSet(viewsets.ModelViewSet):
             return self.queryset
         if user.role == User.Role.HOD:
             return self.queryset.filter(department=user.department)
+        if user.role == User.Role.TEACHER:
+            # Teachers can view their own profile and students in their courses
+            from apps.courses.models import CourseEnrollment
+            enrolled_student_ids = CourseEnrollment.objects.filter(
+                course__assigned_teacher=user
+            ).values_list('student_id', flat=True)
+            return self.queryset.filter(
+                models.Q(id=user.id)
+                | models.Q(id__in=enrolled_student_ids)
+                | models.Q(department=user.department, role=User.Role.STUDENT)
+            )
         return self.queryset.filter(id=user.id)
 
     def perform_create(self, serializer):

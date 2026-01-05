@@ -253,3 +253,203 @@ export const useGradeSubmission = () => {
     },
   });
 };
+
+// ============================================================================
+// Exam Session Types
+// ============================================================================
+
+export interface ExamSession {
+  id: string;
+  assessment: string;
+  assessment_title: string;
+  student: number;
+  student_email: string;
+  started_at: string;
+  ended_at: string | null;
+  server_deadline: string;
+  cheating_count: number;
+  status: 'IN_PROGRESS' | 'SUBMITTED' | 'TERMINATED';
+  saved_answers: (number | string | null)[];
+  cheating_logs: CheatingLog[];
+  time_remaining_seconds: number;
+}
+
+export interface CheatingLog {
+  id: string;
+  incident_type: 'TAB_SWITCH' | 'BLUR' | 'FULLSCREEN_EXIT' | 'COPY_PASTE';
+  occurred_at: string;
+  details: Record<string, unknown>;
+}
+
+export interface ExamAssignment {
+  id: string;
+  assessment: string;
+  assessment_title: string;
+  student: number;
+  student_email: string;
+  student_name: string;
+  assigned_at: string;
+  is_completed: boolean;
+  created_at: string;
+}
+
+// ============================================================================
+// Student Assignment APIs
+// ============================================================================
+
+export const assignStudents = async (
+  assessmentId: string,
+  studentIds: number[]
+): Promise<{ message: string; total_assigned: number }> => {
+  const { data } = await apiClient.post(`/assessments/${assessmentId}/assign/`, {
+    student_ids: studentIds,
+  });
+  return data;
+};
+
+export const useAssignStudents = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assessmentId, studentIds }: { assessmentId: string; studentIds: number[] }) =>
+      assignStudents(assessmentId, studentIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['assessment-assignments', variables.assessmentId] });
+      queryClient.invalidateQueries({ queryKey: ['assessment', variables.assessmentId] });
+    },
+  });
+};
+
+export const listAssignments = async (assessmentId: string): Promise<ExamAssignment[]> => {
+  const { data } = await apiClient.get<ExamAssignment[]>(`/assessments/${assessmentId}/assignments/`);
+  return data;
+};
+
+export const useAssessmentAssignments = (assessmentId: string) => {
+  return useQuery({
+    queryKey: ['assessment-assignments', assessmentId],
+    queryFn: () => listAssignments(assessmentId),
+    enabled: !!assessmentId,
+  });
+};
+
+export const removeAssignment = async (assessmentId: string, studentId: number): Promise<void> => {
+  await apiClient.delete(`/assessments/${assessmentId}/assignments/${studentId}/`);
+};
+
+export const useRemoveAssignment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assessmentId, studentId }: { assessmentId: string; studentId: number }) =>
+      removeAssignment(assessmentId, studentId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['assessment-assignments', variables.assessmentId] });
+    },
+  });
+};
+
+// ============================================================================
+// Exam Session APIs
+// ============================================================================
+
+export const startExamSession = async (assessmentId: string): Promise<ExamSession> => {
+  const { data } = await apiClient.post<ExamSession>(`/assessments/${assessmentId}/start-session/`);
+  return data;
+};
+
+export const useStartExamSession = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: startExamSession,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exam-sessions'] });
+    },
+  });
+};
+
+export const reportCheating = async (
+  sessionId: string,
+  incidentType: CheatingLog['incident_type'],
+  details?: Record<string, unknown>
+): Promise<ExamSession> => {
+  const { data } = await apiClient.post<ExamSession>(
+    `/assessments/sessions/${sessionId}/report-cheating/`,
+    { incident_type: incidentType, details }
+  );
+  return data;
+};
+
+export const useReportCheating = () => {
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      incidentType,
+      details,
+    }: {
+      sessionId: string;
+      incidentType: CheatingLog['incident_type'];
+      details?: Record<string, unknown>;
+    }) => reportCheating(sessionId, incidentType, details),
+  });
+};
+
+export const autoSaveAnswers = async (
+  sessionId: string,
+  answers: (number | string | null)[]
+): Promise<{ message: string }> => {
+  const { data } = await apiClient.post(`/assessments/sessions/${sessionId}/autosave/`, {
+    answers,
+  });
+  return data;
+};
+
+export const useAutoSaveAnswers = () => {
+  return useMutation({
+    mutationFn: ({ sessionId, answers }: { sessionId: string; answers: (number | string | null)[] }) =>
+      autoSaveAnswers(sessionId, answers),
+  });
+};
+
+export const getSavedAnswers = async (
+  sessionId: string
+): Promise<{ answers: (number | string | null)[]; time_remaining_seconds: number }> => {
+  const { data } = await apiClient.get(`/assessments/sessions/${sessionId}/saved-answers/`);
+  return data;
+};
+
+export const useSavedAnswers = (sessionId: string) => {
+  return useQuery({
+    queryKey: ['saved-answers', sessionId],
+    queryFn: () => getSavedAnswers(sessionId),
+    enabled: !!sessionId,
+  });
+};
+
+export const getExamSession = async (sessionId: string): Promise<ExamSession> => {
+  const { data } = await apiClient.get<ExamSession>(`/assessments/sessions/${sessionId}/`);
+  return data;
+};
+
+export const useExamSession = (sessionId: string) => {
+  return useQuery({
+    queryKey: ['exam-session', sessionId],
+    queryFn: () => getExamSession(sessionId),
+    enabled: !!sessionId,
+  });
+};
+
+export const listExamSessions = async (params?: {
+  assessment?: string;
+  status?: string;
+}): Promise<PaginatedResponse<ExamSession>> => {
+  const { data } = await apiClient.get<PaginatedResponse<ExamSession>>('/assessments/sessions/', {
+    params,
+  });
+  return data;
+};
+
+export const useExamSessions = (params?: { assessment?: string; status?: string }) => {
+  return useQuery({
+    queryKey: ['exam-sessions', params],
+    queryFn: () => listExamSessions(params),
+  });
+};

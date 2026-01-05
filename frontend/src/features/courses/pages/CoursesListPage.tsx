@@ -48,7 +48,7 @@ const CoursesListPage: React.FC = () => {
     }
   };
 
-  const handleApprove = async (courseId: number) => {
+  const handleApprove = async (courseId: string) => {
     try {
       await approveMutation.mutateAsync(courseId);
       message.success('Course approved successfully');
@@ -84,6 +84,9 @@ const CoursesListPage: React.FC = () => {
       dataIndex: 'title',
       key: 'title',
       sorter: (a, b) => a.title.localeCompare(b.title),
+      render: (text, record) => (
+        <a onClick={() => navigate(`/dashboard/courses/${record.id}`)}>{text}</a>
+      ),
     },
     {
       title: 'Department',

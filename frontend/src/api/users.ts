@@ -10,7 +10,7 @@ import type {
 // List users
 export const listUsers = async (params?: {
   role?: string;
-  department?: number;
+  department?: string;
   search?: string;
   page?: number;
 }): Promise<PaginatedResponse<User>> => {
@@ -22,7 +22,7 @@ export const listUsers = async (params?: {
 
 export const useUsers = (params?: {
   role?: string;
-  department?: number;
+  department?: string;
   search?: string;
   page?: number;
 }) => {
@@ -67,7 +67,7 @@ export const updateUser = async (
   id: number,
   payload: UpdateUserPayload
 ): Promise<User> => {
-  const { data} = await apiClient.patch<User>(`/auth/accounts/${id}/`, payload);
+  const { data } = await apiClient.patch<User>(`/auth/accounts/${id}/`, payload);
   return data;
 };
 

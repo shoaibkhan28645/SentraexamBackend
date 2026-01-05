@@ -62,6 +62,10 @@ class Assessment(BaseModel):
         User, on_delete=models.SET_NULL, related_name="assessments_approved", null=True, blank=True
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    assign_to_all = models.BooleanField(
+        default=True,
+        help_text="If False, only students in ExamAssignment can take the exam."
+    )
 
     class Meta:
         ordering = ("-created_at",)
@@ -83,6 +87,89 @@ class Assessment(BaseModel):
         self.save(update_fields=["status", "scheduled_at", "closes_at", "updated_at"])
 
 
+class ExamAssignment(BaseModel):
+    """Tracks which students are assigned to take a specific exam."""
+
+    assessment = models.ForeignKey(
+        Assessment, on_delete=models.CASCADE, related_name="assignments"
+    )
+    student = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="exam_assignments"
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    is_completed = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("assessment", "student")
+        ordering = ("-assigned_at",)
+
+    def __str__(self) -> str:
+        return f"{self.student} assigned to {self.assessment}"
+
+
+class ExamSession(BaseModel):
+    """Tracks a student's exam session for proctoring and timing."""
+
+    class SessionStatus(models.TextChoices):
+        IN_PROGRESS = "IN_PROGRESS", "In Progress"
+        SUBMITTED = "SUBMITTED", "Submitted"
+        TERMINATED = "TERMINATED", "Terminated"
+
+    assessment = models.ForeignKey(
+        Assessment, on_delete=models.CASCADE, related_name="sessions"
+    )
+    student = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="exam_sessions"
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    server_deadline = models.DateTimeField(
+        help_text="Server-calculated deadline based on duration"
+    )
+    cheating_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(
+        max_length=20,
+        choices=SessionStatus.choices,
+        default=SessionStatus.IN_PROGRESS,
+    )
+    saved_answers = models.JSONField(
+        default=list, blank=True, help_text="Auto-saved answers"
+    )
+
+    class Meta:
+        unique_together = ("assessment", "student")
+        ordering = ("-started_at",)
+
+    def __str__(self) -> str:
+        return f"{self.student} session for {self.assessment}"
+
+    def is_expired(self) -> bool:
+        return timezone.now() > self.server_deadline
+
+
+class CheatingLog(BaseModel):
+    """Logs individual cheating incidents during an exam session."""
+
+    class IncidentType(models.TextChoices):
+        TAB_SWITCH = "TAB_SWITCH", "Tab Switch"
+        BLUR = "BLUR", "Window Blur"
+        FULLSCREEN_EXIT = "FULLSCREEN_EXIT", "Fullscreen Exit"
+        COPY_PASTE = "COPY_PASTE", "Copy/Paste Attempt"
+
+    session = models.ForeignKey(
+        ExamSession, on_delete=models.CASCADE, related_name="cheating_logs"
+    )
+    incident_type = models.CharField(max_length=20, choices=IncidentType.choices)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ("-occurred_at",)
+
+    def __str__(self) -> str:
+        return f"{self.incident_type} at {self.occurred_at}"
+
+
 class AssessmentSubmission(OwnedModel):
     class SubmissionStatus(models.TextChoices):
         SUBMITTED = "SUBMITTED", "Submitted"
@@ -96,6 +183,13 @@ class AssessmentSubmission(OwnedModel):
         User,
         on_delete=models.CASCADE,
         related_name="assessment_submissions",
+    )
+    session = models.OneToOneField(
+        ExamSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submission",
     )
     submitted_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
@@ -123,3 +217,4 @@ class AssessmentSubmission(OwnedModel):
         self.status = self.SubmissionStatus.GRADED
         self.updated_at = timezone.now()
         self.save(update_fields=["score", "feedback", "status", "updated_at"])
+

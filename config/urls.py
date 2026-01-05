@@ -1,5 +1,7 @@
 """Project URL configuration."""
 
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import (
@@ -16,6 +18,7 @@ api_urlpatterns = [
     path("notifications/", include("apps.notifications.urls")),
     path("documents/", include("apps.documents.urls")),
     path("calendar/", include("apps.academic_calendar.urls")),
+    path("proctoring/", include("apps.proctoring.urls")),
 ]
 
 urlpatterns = [
@@ -33,3 +36,7 @@ urlpatterns = [
     ),
     path("api/", include((api_urlpatterns, "api"))),
 ]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

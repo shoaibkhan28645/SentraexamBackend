@@ -86,6 +86,8 @@ class CourseApprovalSerializer(serializers.ModelSerializer):
 
 class CourseEnrollmentSerializer(serializers.ModelSerializer):
     student_email = serializers.EmailField(source="student.email", read_only=True)
+    student_first_name = serializers.CharField(source="student.first_name", read_only=True)
+    student_last_name = serializers.CharField(source="student.last_name", read_only=True)
     course_code = serializers.CharField(source="course.code", read_only=True)
 
     class Meta:
@@ -96,6 +98,8 @@ class CourseEnrollmentSerializer(serializers.ModelSerializer):
             "course_code",
             "student",
             "student_email",
+            "student_first_name",
+            "student_last_name",
             "status",
             "enrolled_at",
             "completed_at",

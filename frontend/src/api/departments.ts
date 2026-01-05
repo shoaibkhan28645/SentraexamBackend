@@ -26,12 +26,12 @@ export const useDepartments = (params?: { search?: string; page?: number }) => {
 };
 
 // Get single department
-export const getDepartment = async (id: number): Promise<Department> => {
+export const getDepartment = async (id: string): Promise<Department> => {
   const { data } = await apiClient.get<Department>(`/departments/${id}/`);
   return data;
 };
 
-export const useDepartment = (id: number) => {
+export const useDepartment = (id: string) => {
   return useQuery({
     queryKey: ['department', id],
     queryFn: () => getDepartment(id),
@@ -59,7 +59,7 @@ export const useCreateDepartment = () => {
 
 // Update department
 export const updateDepartment = async (
-  id: number,
+  id: string,
   payload: Partial<CreateDepartmentPayload>
 ): Promise<Department> => {
   const { data } = await apiClient.patch<Department>(`/departments/${id}/`, payload);
@@ -69,7 +69,7 @@ export const updateDepartment = async (
 export const useUpdateDepartment = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: Partial<CreateDepartmentPayload> }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateDepartmentPayload> }) =>
       updateDepartment(id, payload),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['departments'] });
@@ -79,7 +79,7 @@ export const useUpdateDepartment = () => {
 };
 
 // Delete department
-export const deleteDepartment = async (id: number): Promise<void> => {
+export const deleteDepartment = async (id: string): Promise<void> => {
   await apiClient.delete(`/departments/${id}/`);
 };
 
@@ -95,7 +95,7 @@ export const useDeleteDepartment = () => {
 
 // Department Memberships
 export const listDepartmentMemberships = async (params?: {
-  department?: number;
+  department?: string;
   user?: number;
   role?: string;
   search?: string;
@@ -108,7 +108,7 @@ export const listDepartmentMemberships = async (params?: {
 };
 
 export const useDepartmentMemberships = (params?: {
-  department?: number;
+  department?: string;
   user?: number;
   role?: string;
   search?: string;

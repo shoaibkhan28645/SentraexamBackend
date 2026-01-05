@@ -12,8 +12,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.settings import api_settings
 
 from apps.users.models import User
-from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD, IsAdminOrTeacher
-from .models import Assessment, AssessmentSubmission
+from apps.users.permissions import IsAdmin, IsAdminHODOrTeacher, IsAdminOrHOD, IsAdminOrTeacher, IsTeacher
+from .models import Assessment, AssessmentSubmission, ExamAssignment, ExamSession
 from .serializers import (
     AssessmentApprovalSerializer,
     AssessmentCreateSerializer,
@@ -21,6 +21,12 @@ from .serializers import (
     AssessmentScheduleSerializer,
     AssessmentSerializer,
     AssessmentSubmissionSerializer,
+    AssignStudentsSerializer,
+    AutoSaveAnswersSerializer,
+    ExamAssignmentSerializer,
+    ExamSessionSerializer,
+    ReportCheatingSerializer,
+    StartExamSessionSerializer,
 )
 
 
@@ -71,9 +77,9 @@ class AssessmentViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in {"create"}:
-            return [IsAuthenticated(), IsAdminOrTeacher()]
+            return [IsAuthenticated(), IsTeacher()]
         if self.action in {"update", "partial_update"}:
-            return [IsAuthenticated(), IsAdminOrTeacher()]
+            return [IsAuthenticated(), IsTeacher()]
         if self.action in {"destroy"}:
             return [IsAuthenticated(), IsAdminOrHOD()]
         if self.action in {"approve", "schedule"}:
@@ -114,10 +120,79 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         serializer.save(assessment=assessment)
         return Response(AssessmentSerializer(assessment, context={"request": request}).data)
 
+    # =========================================================================
+    # Student Assignment Endpoints
+    # =========================================================================
+
+    @action(detail=True, methods=["post"], url_path="assign")
+    def assign_students(self, request, *args, **kwargs):
+        """Assign specific students to take this exam."""
+        assessment = self.get_object()
+        if request.user.role not in {User.Role.ADMIN, User.Role.HOD, User.Role.TEACHER}:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = AssignStudentsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        created = serializer.save(assessment=assessment)
+        
+        return Response({
+            "message": f"Assigned {len(created)} new students to the exam.",
+            "total_assigned": assessment.assignments.count(),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], url_path="assignments")
+    def list_assignments(self, request, *args, **kwargs):
+        """List all students assigned to this exam."""
+        assessment = self.get_object()
+        if request.user.role not in {User.Role.ADMIN, User.Role.HOD, User.Role.TEACHER}:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        assignments = assessment.assignments.select_related("student")
+        serializer = ExamAssignmentSerializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["delete"], url_path="assignments/(?P<student_id>[^/.]+)")
+    def remove_assignment(self, request, student_id=None, *args, **kwargs):
+        """Remove a student from the exam assignment list."""
+        assessment = self.get_object()
+        if request.user.role not in {User.Role.ADMIN, User.Role.HOD, User.Role.TEACHER}:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        deleted, _ = ExamAssignment.objects.filter(
+            assessment=assessment, student_id=student_id
+        ).delete()
+        
+        if deleted:
+            return Response({"message": "Student removed from assignment."})
+        return Response({"error": "Assignment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # =========================================================================
+    # Exam Session Endpoints
+    # =========================================================================
+
+    @action(detail=True, methods=["post"], url_path="start-session")
+    def start_session(self, request, *args, **kwargs):
+        """Start or resume an exam session for the current student."""
+        assessment = self.get_object()
+        if request.user.role != User.Role.STUDENT:
+            return Response(
+                {"error": "Only students can start exam sessions."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = StartExamSessionSerializer(
+            data={},
+            context={"request": request, "assessment": assessment}
+        )
+        serializer.is_valid(raise_exception=True)
+        session = serializer.save(assessment=assessment)
+        
+        return Response(ExamSessionSerializer(session).data)
+
 
 class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
     queryset = AssessmentSubmission.objects.select_related(
-        "assessment", "assessment__course", "student"
+        "assessment", "assessment__course", "student", "session"
     )
     serializer_class = AssessmentSubmissionSerializer
     permission_classes = [IsAuthenticated]
@@ -141,11 +216,43 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only students can submit assessments.")
         assessment = serializer.validated_data["assessment"]
         now = timezone.now()
+        
+        # Check if already submitted
+        existing_submission = AssessmentSubmission.objects.filter(
+            assessment=assessment, student=user
+        ).first()
+        if existing_submission:
+            raise ValidationError("You have already submitted this assessment.")
+        
         if assessment.scheduled_at and now < assessment.scheduled_at:
             raise ValidationError("Submissions are not open yet for this assessment.")
         if assessment.closes_at and now > assessment.closes_at:
             raise ValidationError("Submission window has closed for this assessment.")
-        submission = serializer.save(student=user, created_by=user, updated_by=user)
+        
+        # Check if student is assigned (for targeted exams)
+        if not assessment.assign_to_all:
+            if not ExamAssignment.objects.filter(assessment=assessment, student=user).exists():
+                raise PermissionDenied("You are not assigned to take this exam.")
+        
+        # Find existing session (optional - works without session too)
+        session = ExamSession.objects.filter(
+            assessment=assessment, student=user, status=ExamSession.SessionStatus.IN_PROGRESS
+        ).first()
+        
+        # Create submission
+        submission = serializer.save(student=user, created_by=user, updated_by=user, session=session)
+        
+        # Mark session as submitted (if exists)
+        if session:
+            session.status = ExamSession.SessionStatus.SUBMITTED
+            session.ended_at = timezone.now()
+            session.save(update_fields=["status", "ended_at", "updated_at"])
+            
+            # Mark assignment as completed
+            ExamAssignment.objects.filter(
+                assessment=assessment, student=user
+            ).update(is_completed=True)
+        
         if assessment.submission_format == Assessment.SubmissionFormat.ONLINE:
             questions = assessment.questions or []
             answers = submission.answers or []
@@ -161,11 +268,12 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
                     continue
                 
                 # Handle MCQ
-                selected = answers[idx]
-                options = question.get("options", [])
-                if isinstance(selected, int) and 0 <= selected < len(options):
-                    if options[selected].get("is_correct"):
-                        score += q_marks
+                if idx < len(answers):
+                    selected = answers[idx]
+                    options = question.get("options", [])
+                    if isinstance(selected, int) and 0 <= selected < len(options):
+                        if options[selected].get("is_correct"):
+                            score += q_marks
 
             submission.score = score
             # If there are subjective questions, it needs manual grading. 
@@ -184,3 +292,79 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
         return Response(
             AssessmentSubmissionSerializer(submission, context={"request": request}).data
         )
+
+
+class ExamSessionViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for managing exam sessions (read-only for listing, actions for updates)."""
+    queryset = ExamSession.objects.select_related("assessment", "student").prefetch_related("cheating_logs")
+    serializer_class = ExamSessionSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ("assessment", "student", "status")
+
+    def get_queryset(self) -> QuerySet[ExamSession]:
+        user = self.request.user
+        qs = self.queryset
+        if user.role in {User.Role.ADMIN, User.Role.HOD}:
+            return qs
+        if user.role == User.Role.TEACHER:
+            return qs.filter(assessment__course__assigned_teacher=user)
+        if user.role == User.Role.STUDENT:
+            return qs.filter(student=user)
+        return qs.none()
+
+    @action(detail=True, methods=["post"], url_path="report-cheating")
+    def report_cheating(self, request, *args, **kwargs):
+        """Report a cheating incident during the exam."""
+        session = self.get_object()
+        
+        # Only the student in the session can report (frontend reports)
+        if request.user != session.student:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        if session.status != ExamSession.SessionStatus.IN_PROGRESS:
+            return Response(
+                {"error": "Session is no longer active."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = ReportCheatingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(session=session)
+        
+        # Return updated session
+        session.refresh_from_db()
+        return Response(ExamSessionSerializer(session).data)
+
+    @action(detail=True, methods=["post"], url_path="autosave")
+    def autosave(self, request, *args, **kwargs):
+        """Auto-save exam answers periodically."""
+        session = self.get_object()
+        
+        if request.user != session.student:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        if session.status != ExamSession.SessionStatus.IN_PROGRESS:
+            return Response(
+                {"error": "Session is no longer active."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = AutoSaveAnswersSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(session=session)
+        
+        return Response({"message": "Answers saved successfully."})
+
+    @action(detail=True, methods=["get"], url_path="saved-answers")
+    def get_saved_answers(self, request, *args, **kwargs):
+        """Retrieve auto-saved answers for resuming an exam."""
+        session = self.get_object()
+        
+        if request.user != session.student:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        return Response({
+            "answers": session.saved_answers,
+            "time_remaining_seconds": ExamSessionSerializer().get_time_remaining_seconds(session),
+        })
+

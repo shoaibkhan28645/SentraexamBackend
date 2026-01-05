@@ -1,18 +1,50 @@
-import React from 'react';
-import { Card, Descriptions, Tag, Typography, Button, Space, Spin, Alert } from 'antd';
+import React, { useState } from 'react';
+import { Card, Descriptions, Tag, Typography, Button, Space, Spin, Alert, Table, Modal, Select, message } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
-import { EditOutlined, ArrowLeftOutlined } from '@ant-design/icons';
-import { useCourse } from '../../../api/courses';
-import { CourseStatus } from '../../../types/index';
+import { EditOutlined, ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
+import { useCourse, useCourseEnrollments, useCreateCourseEnrollment } from '../../../api/courses';
+import { useUsers } from '../../../api/users';
+import { CourseStatus, UserRole } from '../../../types/index';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
 const CourseDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const courseId = id ? parseInt(id, 10) : undefined;
+  const courseId = id || undefined;
+  const { user } = useAuth();
+
+  const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<number | undefined>();
 
   const { data: course, isLoading, error } = useCourse(courseId!);
+
+  const { data: enrollments, isLoading: enrollmentsLoading } = useCourseEnrollments({
+    course: courseId,
+  });
+
+  const { data: students } = useUsers({
+    role: UserRole.STUDENT,
+  });
+
+  const createEnrollmentMutation = useCreateCourseEnrollment();
+
+  const handleEnroll = async () => {
+    if (!courseId || !selectedStudent) return;
+
+    try {
+      await createEnrollmentMutation.mutateAsync({
+        course: courseId,
+        student: selectedStudent,
+      });
+      message.success('Student enrolled successfully');
+      setIsEnrollModalOpen(false);
+      setSelectedStudent(undefined);
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || 'Failed to enroll student');
+    }
+  };
 
   if (error) {
     return (
@@ -135,20 +167,90 @@ const CourseDetailPage: React.FC = () => {
       </Card>
 
       {/* Additional sections can be added here for enrollments, assessments, etc. */}
-      <Card title="Course Statistics" style={{ marginTop: 16 }}>
-        <Descriptions column={3}>
-          <Descriptions.Item label="Total Enrollments">
-            <Text strong>0</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="Active Assessments">
-            <Text strong>0</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="Completion Rate">
-            <Text strong>-</Text>
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-    </div>
+
+
+      {user?.role === UserRole.TEACHER && (
+        <Card
+          title="Enrolled Students"
+          style={{ marginTop: 16 }}
+          extra={
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setIsEnrollModalOpen(true)}
+            >
+              Enroll Student
+            </Button>
+          }
+        >
+          <Table
+            dataSource={enrollments?.results}
+            rowKey="id"
+            loading={enrollmentsLoading}
+            pagination={false}
+            columns={[
+              {
+                title: 'Name',
+                key: 'name',
+                render: (_, record) => `${record.student_first_name} ${record.student_last_name}`,
+              },
+              {
+                title: 'Email',
+                dataIndex: 'student_email',
+                key: 'email',
+              },
+              {
+                title: 'Status',
+                dataIndex: 'status',
+                key: 'status',
+                render: (status) => <Tag color={status === 'ENROLLED' ? 'green' : 'default'}>{status}</Tag>,
+              },
+              {
+                title: 'Enrolled At',
+                dataIndex: 'enrolled_at',
+                key: 'enrolled_at',
+                render: (date) => new Date(date).toLocaleDateString(),
+              },
+            ]}
+          />
+        </Card>
+      )}
+
+      <Modal
+        title="Enroll Student"
+        open={isEnrollModalOpen}
+        onOk={handleEnroll}
+        onCancel={() => {
+          setIsEnrollModalOpen(false);
+          setSelectedStudent(undefined);
+        }}
+        confirmLoading={createEnrollmentMutation.isPending}
+        okText="Enroll"
+        okButtonProps={{ disabled: !selectedStudent }}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text>Select a student to enroll in this course:</Text>
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          placeholder="Select a student"
+          showSearch
+          optionFilterProp="children"
+          onChange={(value) => setSelectedStudent(value)}
+          value={selectedStudent}
+          filterOption={(input, option) =>
+            (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+          }
+          options={students?.results
+            ?.filter(s => !enrollments?.results.some(e => e.student === s.id)) // Filter out already enrolled
+            .map(student => ({
+              value: student.id,
+              label: `${student.first_name} ${student.last_name} (${student.email})`,
+            }))
+          }
+        />
+      </Modal>
+    </div >
   );
 };
 

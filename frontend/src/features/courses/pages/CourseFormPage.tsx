@@ -14,7 +14,7 @@ const CourseFormPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
-  const courseId = id ? parseInt(id, 10) : undefined;
+  const courseId = id || undefined;
 
   const [form] = Form.useForm();
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Table, Button, Space, Tag, Input, Select, message, Typography, Alert, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, CheckOutlined, CalendarOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, CheckOutlined, CalendarOutlined, PlayCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
@@ -123,6 +123,15 @@ const AssessmentsListPage: React.FC = () => {
       dataIndex: 'title',
       key: 'title',
       sorter: (a, b) => a.title.localeCompare(b.title),
+      render: (title: string, record: Assessment) => (
+        <Button
+          type="link"
+          onClick={() => navigate(`/dashboard/assessments/${record.id}`)}
+          style={{ padding: 0 }}
+        >
+          {title}
+        </Button>
+      ),
     },
     {
       title: 'Course',
@@ -192,14 +201,25 @@ const AssessmentsListPage: React.FC = () => {
       key: 'actions',
       render: (_, record) => (
         <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => navigate(`/dashboard/assessments/${record.id}/edit`)}
-          >
-            Edit
-          </Button>
-          {record.status === AssessmentStatus.DRAFT && (
+          {(user?.role === UserRole.TEACHER || user?.role === UserRole.ADMIN || user?.role === UserRole.HOD) && (
+            <Button
+              type="link"
+              icon={<EyeOutlined />}
+              onClick={() => navigate(`/dashboard/assessments/${record.id}`)}
+            >
+              View
+            </Button>
+          )}
+          {user?.role === UserRole.TEACHER && (
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/dashboard/assessments/${record.id}/edit`)}
+            >
+              Edit
+            </Button>
+          )}
+          {record.status === AssessmentStatus.DRAFT && user?.role === UserRole.TEACHER && (
             <Button
               type="link"
               icon={<CheckOutlined />}
@@ -209,7 +229,7 @@ const AssessmentsListPage: React.FC = () => {
               Submit
             </Button>
           )}
-          {record.status === AssessmentStatus.SUBMITTED && (
+          {record.status === AssessmentStatus.SUBMITTED && (user?.role === UserRole.ADMIN || user?.role === UserRole.HOD) && (
             <Button
               type="link"
               icon={<CheckOutlined />}
@@ -219,7 +239,7 @@ const AssessmentsListPage: React.FC = () => {
               Approve
             </Button>
           )}
-          {record.status === AssessmentStatus.APPROVED && (
+          {record.status === AssessmentStatus.APPROVED && (user?.role === UserRole.ADMIN || user?.role === UserRole.HOD) && (
             <Button
               type="link"
               icon={<CalendarOutlined />}
@@ -228,18 +248,20 @@ const AssessmentsListPage: React.FC = () => {
               Schedule
             </Button>
           )}
-          <Popconfirm
-            title="Delete Assessment"
-            description={`Are you sure you want to delete ${record.title}?`}
-            okText="Delete"
-            okType="danger"
-            okButtonProps={{ loading: deleteMutation.isPending }}
-            onConfirm={() => handleDelete(record)}
-          >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              Delete
-            </Button>
-          </Popconfirm>
+          {(user?.role === UserRole.ADMIN || user?.role === UserRole.HOD) && (
+            <Popconfirm
+              title="Delete Assessment"
+              description={`Are you sure you want to delete ${record.title}?`}
+              okText="Delete"
+              okType="danger"
+              okButtonProps={{ loading: deleteMutation.isPending }}
+              onConfirm={() => handleDelete(record)}
+            >
+              <Button type="link" danger icon={<DeleteOutlined />}>
+                Delete
+              </Button>
+            </Popconfirm>
+          )}
           {user?.role === UserRole.STUDENT && record.submission_format === AssessmentSubmissionFormat.ONLINE && (
             <Button
               type="link"
@@ -258,13 +280,15 @@ const AssessmentsListPage: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={2} style={{ margin: 0 }}>Assessments</Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/dashboard/assessments/new')}
-        >
-          Add Assessment
-        </Button>
+        {user?.role === UserRole.TEACHER && (
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/dashboard/assessments/new')}
+          >
+            Add Assessment
+          </Button>
+        )}
       </div>
 
       <Space style={{ marginBottom: 16 }} size="middle">

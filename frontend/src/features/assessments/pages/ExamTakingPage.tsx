@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card,
@@ -13,31 +13,56 @@ import {
     Statistic,
     Alert,
     Divider,
+    Result,
+    Checkbox,
 } from 'antd';
 import {
     FullscreenOutlined,
     FullscreenExitOutlined,
+    StopOutlined,
+    CameraOutlined,
 } from '@ant-design/icons';
-import { useAssessment, useSubmitAssessmentWork } from '../../../api/assessments';
+import { useAssessment, useSubmitAssessmentWork, useStartExamSession } from '../../../api/assessments';
+import WebcamProctor from '../../../components/WebcamProctor';
+import FaceRegistrationModal, { useFaceRegistrationRequired } from '../../../components/FaceRegistrationModal';
+import type { ProctoringViolation } from '../../../api/proctoring';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 const { Countdown } = Statistic;
+
+const MAX_WARNINGS = 3;
 
 const ExamTakingPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { data: assessment, isLoading } = useAssessment(id!);
     const submitMutation = useSubmitAssessmentWork();
+    const startSessionMutation = useStartExamSession();
 
     const [answers, setAnswers] = useState<(number | string | null)[]>([]);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [cheatingAttempts, setCheatingAttempts] = useState(0);
     const [examStarted, setExamStarted] = useState(false);
+    const [examCancelled, setExamCancelled] = useState(false);
     const [deadline, setDeadline] = useState<number>(0);
     const [submitting, setSubmitting] = useState(false);
+    const [proctoringConsent, setProctoringConsent] = useState(false);
+    const [proctoringViolations, setProctoringViolations] = useState(0);
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [startingSession, setStartingSession] = useState(false);
+    const [showFaceRegistration, setShowFaceRegistration] = useState(false);
 
     const containerRef = useRef<HTMLDivElement>(null);
+    const isSubmittingRef = useRef(false);
+
+    // Check if face registration is required
+    const {
+        isRequired: isFaceRegistrationRequired,
+        isLoading: isLoadingFaceStatus
+    } = useFaceRegistrationRequired(
+        !!assessment?.proctoring_settings?.require_face_verification
+    );
 
     // Initialize answers array when assessment loads
     useEffect(() => {
@@ -46,34 +71,40 @@ const ExamTakingPage: React.FC = () => {
 
             // Check for existing session
             const storedEndTime = localStorage.getItem(`exam_end_${id}`);
+            const storedCancelled = localStorage.getItem(`exam_cancelled_${id}`);
+
+            if (storedCancelled === 'true') {
+                setExamCancelled(true);
+                setExamStarted(true);
+                return;
+            }
+
             if (storedEndTime) {
                 const endTimestamp = parseInt(storedEndTime, 10);
                 if (endTimestamp > Date.now()) {
                     setDeadline(endTimestamp);
-                    setExamStarted(true); // Auto-resume if time remains
+                    setExamStarted(true);
                 } else {
-                    // Time expired
-                    setDeadline(Date.now()); // Set to now so it shows 0
-                    // Optionally auto-submit if time expired while away
+                    setDeadline(Date.now());
                 }
-            } else {
-                // Will be set when exam starts
             }
         }
     }, [assessment, id]);
 
     // Anti-cheating: Visibility Change & Blur
     useEffect(() => {
-        if (!examStarted) return;
+        if (!examStarted || examCancelled || isSubmittingRef.current) return;
 
         const handleVisibilityChange = () => {
-            if (document.hidden) {
+            if (document.hidden && !isSubmittingRef.current) {
                 handleCheatingAttempt('Tab switching detected!');
             }
         };
 
         const handleBlur = () => {
-            handleCheatingAttempt('Window focus lost!');
+            if (!isSubmittingRef.current) {
+                handleCheatingAttempt('Window focus lost!');
+            }
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -83,35 +114,35 @@ const ExamTakingPage: React.FC = () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
         };
-    }, [examStarted]);
+    }, [examStarted, examCancelled]);
 
-    const handleCheatingAttempt = (reason: string) => {
-        setCheatingAttempts((prev) => {
-            const newCount = prev + 1;
+    const handleCheatingAttempt = useCallback((reason: string) => {
+        if (examCancelled) return;
+
+        setCheatingAttempts((prevCount) => {
+            const newCount = prevCount + 1;
+
+            // Only show warning, never cancel
             Modal.warning({
-                title: 'Cheating Detected!',
+                title: 'Warning: Suspicious Activity Detected!',
                 content: (
                     <div>
                         <p>{reason}</p>
                         <p>You are not allowed to switch tabs or leave the exam window.</p>
                         <p style={{ color: 'red', fontWeight: 'bold' }}>
-                            Warning {newCount}/3
+                            Warning {newCount} - All violations are recorded
+                        </p>
+                        <p style={{ fontSize: 12, color: '#666' }}>
+                            Your teacher will review all violations after submission.
                         </p>
                     </div>
                 ),
                 okText: 'I Understand',
             });
 
-            if (newCount >= 3) {
-                message.error('Too many violations. Exam will be submitted automatically.');
-                // Use setTimeout to break out of the state update cycle and ensure submit runs
-                setTimeout(() => {
-                    handleSubmit();
-                }, 1000);
-            }
             return newCount;
         });
-    };
+    }, [examCancelled]);
 
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) {
@@ -127,15 +158,61 @@ const ExamTakingPage: React.FC = () => {
         }
     };
 
-    // Enforce fullscreen to start
-    const startExam = () => {
-        toggleFullscreen();
-        setExamStarted(true);
+    // Handle proctoring violation from webcam
+    const handleProctoringViolation = useCallback((violation: ProctoringViolation) => {
+        setProctoringViolations((prev) => prev + 1);
+        // Violations are handled by the WebcamProctor component (warnings)
+    }, []);
 
-        // Set end time in localStorage
-        const endTime = Date.now() + assessment!.duration_minutes * 60 * 1000;
-        localStorage.setItem(`exam_end_${id}`, endTime.toString());
-        setDeadline(endTime);
+    // Start exam
+    const startExam = async () => {
+        if (!proctoringConsent) {
+            message.warning('Please consent to webcam proctoring to start the exam.');
+            return;
+        }
+
+        if (isLoadingFaceStatus) return;
+
+        // Check for face registration
+        if (isFaceRegistrationRequired) {
+            setShowFaceRegistration(true);
+            return;
+        }
+
+        setStartingSession(true);
+
+        try {
+            // Call backend to start/resume exam session
+            const session = await startSessionMutation.mutateAsync(id!);
+
+            // Set real session ID for proctoring
+            setSessionId(session.id);
+
+            // Use server-provided deadline for accurate timing
+            const serverDeadline = new Date(session.server_deadline).getTime();
+            setDeadline(serverDeadline);
+            localStorage.setItem(`exam_end_${id}`, serverDeadline.toString());
+
+            // Restore saved answers if resuming session
+            if (session.saved_answers?.length) {
+                setAnswers(session.saved_answers);
+            }
+
+            // Clear any previous cancelled state
+            localStorage.removeItem(`exam_cancelled_${id}`);
+
+            // Enter fullscreen and start exam
+            toggleFullscreen();
+            setExamStarted(true);
+        } catch (error: any) {
+            console.error('Failed to start exam session:', error);
+            const errorMessage = error.response?.data?.detail ||
+                error.response?.data?.[0] ||
+                'Failed to start exam. Please try again.';
+            message.error(errorMessage);
+        } finally {
+            setStartingSession(false);
+        }
     };
 
     const handleAnswerChange = (index: number, value: number | string) => {
@@ -144,29 +221,52 @@ const ExamTakingPage: React.FC = () => {
         setAnswers(newAnswers);
     };
 
-    const handleSubmit = async () => {
-        if (!assessment || submitting) return;
+    const handleSubmit = useCallback(async () => {
+        if (!assessment || submitting || isSubmittingRef.current) return;
+
+        isSubmittingRef.current = true;
         setSubmitting(true);
 
         try {
+            // Prepare answers - ensure all questions have an answer
+            const preparedAnswers = answers.map((answer, idx) => {
+                const question = assessment.questions?.[idx];
+                if (answer === null) {
+                    // For unanswered MCQ, send -1 (will be marked wrong)
+                    // For unanswered subjective, send empty string
+                    return question?.type === 'SUBJECTIVE' ? '' : -1;
+                }
+                return answer;
+            });
+
+            console.log('Submitting exam with answers:', preparedAnswers);
+
             await submitMutation.mutateAsync({
                 assessmentId: assessment.id,
-                answers: answers as any[], // Backend handles mixed types now
+                answers: preparedAnswers,
             });
+
             message.success('Exam submitted successfully!');
 
             // Clear local storage
             localStorage.removeItem(`exam_end_${id}`);
+            localStorage.removeItem(`exam_cancelled_${id}`);
 
             if (document.fullscreenElement) {
                 document.exitFullscreen();
             }
             navigate('/dashboard/assessments');
         } catch (error: any) {
-            message.error(error.response?.data?.detail || 'Failed to submit exam');
+            console.error('Submission error:', error);
+            const errorMessage = error.response?.data?.detail ||
+                error.response?.data?.answers?.[0] ||
+                JSON.stringify(error.response?.data) ||
+                'Failed to submit exam';
+            message.error(errorMessage);
+            isSubmittingRef.current = false;
             setSubmitting(false);
         }
-    };
+    }, [assessment, submitting, answers, submitMutation, id, navigate]);
 
     if (isLoading || !assessment) {
         return (
@@ -175,6 +275,38 @@ const ExamTakingPage: React.FC = () => {
             </div>
         );
     }
+
+    // Show cancelled state
+    if (examCancelled) {
+        const handleResetExam = () => {
+            localStorage.removeItem(`exam_cancelled_${id}`);
+            localStorage.removeItem(`exam_end_${id}`);
+            setExamCancelled(false);
+            setExamStarted(false);
+            setCheatingAttempts(0);
+            setProctoringViolations(0);
+        };
+
+        return (
+            <div style={{ maxWidth: 600, margin: '100px auto' }}>
+                <Result
+                    status="error"
+                    icon={<StopOutlined />}
+                    title="Exam Cancelled"
+                    subTitle="Your exam has been cancelled due to multiple violations of exam rules."
+                    extra={[
+                        <Button type="primary" key="back" onClick={() => navigate('/dashboard/assessments')}>
+                            Return to Assessments
+                        </Button>,
+                        <Button key="reset" onClick={handleResetExam}>
+                            Reset & Try Again
+                        </Button>,
+                    ]}
+                />
+            </div>
+        );
+    }
+
 
     if (!examStarted) {
         return (
@@ -190,21 +322,69 @@ const ExamTakingPage: React.FC = () => {
                                 <ul style={{ textAlign: 'left' }}>
                                     <li>You must stay in fullscreen mode.</li>
                                     <li>Do not switch tabs or open other applications.</li>
-                                    <li>Violations will be recorded and may lead to disqualification.</li>
+                                    <li><strong>After {MAX_WARNINGS} warnings, your exam will be cancelled.</strong></li>
                                     <li>Duration: {assessment.duration_minutes} minutes.</li>
                                 </ul>
                             }
                             type="warning"
                             showIcon
                         />
-                        <Button type="primary" size="large" onClick={startExam} block>
-                            Start Exam
+                        <Alert
+                            message={
+                                <Space>
+                                    <CameraOutlined />
+                                    <span>Webcam Proctoring Required</span>
+                                </Space>
+                            }
+                            description={
+                                <div style={{ textAlign: 'left' }}>
+                                    <p>This exam uses AI-powered webcam proctoring to ensure exam integrity.</p>
+                                    <ul>
+                                        <li>Your webcam will be active throughout the exam.</li>
+                                        <li>AI will detect if you look away or if multiple faces are visible.</li>
+                                        <li>Snapshots are captured periodically for verification.</li>
+                                        {isFaceRegistrationRequired && (
+                                            <li><strong>Face registration is required before starting.</strong></li>
+                                        )}
+                                    </ul>
+                                </div>
+                            }
+                            type="info"
+                            showIcon
+                        />
+                        <div style={{ textAlign: 'left', padding: '12px', background: '#fafafa', borderRadius: 8 }}>
+                            <Checkbox
+                                checked={proctoringConsent}
+                                onChange={(e) => setProctoringConsent(e.target.checked)}
+                            >
+                                I consent to webcam proctoring during this exam. I understand that my face will be monitored.
+                            </Checkbox>
+                        </div>
+                        <Button
+                            type="primary"
+                            size="large"
+                            onClick={startExam}
+                            block
+                            disabled={!proctoringConsent || startingSession || isLoadingFaceStatus}
+                            loading={startingSession || isLoadingFaceStatus}
+                        >
+                            {isFaceRegistrationRequired ? 'Register Face & Start Exam' : 'Start Exam'}
                         </Button>
                     </Space>
                 </Card>
+
+                <FaceRegistrationModal
+                    open={showFaceRegistration}
+                    onCancel={() => setShowFaceRegistration(false)}
+                    onSuccess={() => {
+                        setShowFaceRegistration(false);
+                        startExam(); // Retry start after registration
+                    }}
+                />
             </div>
         );
     }
+
 
     return (
         <div
@@ -213,18 +393,18 @@ const ExamTakingPage: React.FC = () => {
                 padding: 24,
                 background: '#f0f2f5',
                 minHeight: '100vh',
-                userSelect: 'none' // Prevent copy-pasting
+                userSelect: 'none'
             }}
         >
             <div style={{ maxWidth: 800, margin: '0 auto' }}>
                 {/* Header with Timer and Controls */}
                 <Card style={{ marginBottom: 24, position: 'sticky', top: 24, zIndex: 100 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
                         <div>
                             <Title level={4} style={{ margin: 0 }}>{assessment.title}</Title>
                             <Text type="secondary">Total Marks: {assessment.total_marks}</Text>
                         </div>
-                        <Space size="large">
+                        <Space size="large" wrap>
                             <div style={{ textAlign: 'center' }}>
                                 <Text type="secondary" style={{ fontSize: 12 }}>Time Remaining</Text>
                                 <div style={{ fontSize: 24, fontWeight: 'bold' }}>
@@ -237,10 +417,22 @@ const ExamTakingPage: React.FC = () => {
                             </div>
                             <div style={{ textAlign: 'center' }}>
                                 <Text type="secondary" style={{ fontSize: 12 }}>Warnings</Text>
-                                <div style={{ fontSize: 24, fontWeight: 'bold', color: cheatingAttempts > 0 ? 'red' : 'green' }}>
-                                    {cheatingAttempts}/3
+                                <div style={{
+                                    fontSize: 24,
+                                    fontWeight: 'bold',
+                                    color: cheatingAttempts >= 2 ? 'red' : cheatingAttempts >= 1 ? 'orange' : 'green'
+                                }}>
+                                    {cheatingAttempts}/{MAX_WARNINGS}
                                 </div>
                             </div>
+                            {proctoringViolations > 0 && (
+                                <div style={{ textAlign: 'center' }}>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>AI Violations</Text>
+                                    <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ff4d4f' }}>
+                                        {proctoringViolations}
+                                    </div>
+                                </div>
+                            )}
                             <Button
                                 icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
                                 onClick={toggleFullscreen}
@@ -263,7 +455,7 @@ const ExamTakingPage: React.FC = () => {
                                 <TextArea
                                     rows={6}
                                     placeholder="Type your answer here..."
-                                    value={answers[index] as string}
+                                    value={answers[index] as string || ''}
                                     onChange={(e) => handleAnswerChange(index, e.target.value)}
                                     onPaste={(e) => {
                                         e.preventDefault();
@@ -288,12 +480,31 @@ const ExamTakingPage: React.FC = () => {
                     ))}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24, marginBottom: 48 }}>
-                        <Button type="primary" size="large" onClick={handleSubmit} loading={submitting}>
+                        <Button
+                            type="primary"
+                            size="large"
+                            onClick={handleSubmit}
+                            loading={submitting}
+                            disabled={examCancelled}
+                        >
                             Submit Exam
                         </Button>
                     </div>
                 </Space>
             </div>
+
+            {/* Webcam Proctoring Component */}
+            {sessionId && (
+                <WebcamProctor
+                    sessionId={sessionId}
+                    snapshotIntervalSeconds={assessment.proctoring_settings?.snapshot_interval_seconds || 5}
+                    motionThreshold={assessment.proctoring_settings?.motion_threshold || 30}
+                    requireFaceVerification={!!assessment.proctoring_settings?.require_face_verification}
+                    onViolation={handleProctoringViolation}
+                    enabled={examStarted && !examCancelled && !submitting}
+                    onTerminated={() => setExamCancelled(true)}
+                />
+            )}
         </div>
     );
 };
