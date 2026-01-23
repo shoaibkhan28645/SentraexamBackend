@@ -24,7 +24,10 @@ import {
 } from '@ant-design/icons';
 import { useAssessment, useSubmitAssessmentWork, useStartExamSession } from '../../../api/assessments';
 import WebcamProctor from '../../../components/WebcamProctor';
+import type { WebcamProctorHandle } from '../../../components/WebcamProctor';
 import FaceRegistrationModal, { useFaceRegistrationRequired } from '../../../components/FaceRegistrationModal';
+import { useVideoRecording } from '../../../hooks/useVideoRecording';
+import { useUploadRecording } from '../../../api/proctoring';
 import type { ProctoringViolation } from '../../../api/proctoring';
 
 const { Title, Text, Paragraph } = Typography;
@@ -39,6 +42,7 @@ const ExamTakingPage: React.FC = () => {
     const { data: assessment, isLoading } = useAssessment(id!);
     const submitMutation = useSubmitAssessmentWork();
     const startSessionMutation = useStartExamSession();
+    const uploadRecordingMutation = useUploadRecording();
 
     const [answers, setAnswers] = useState<(number | string | null)[]>([]);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -55,13 +59,17 @@ const ExamTakingPage: React.FC = () => {
 
     const containerRef = useRef<HTMLDivElement>(null);
     const isSubmittingRef = useRef(false);
+    const webcamRef = useRef<WebcamProctorHandle>(null);
+
+    // Video recording hook
+    const { startRecording, stopRecording, isRecording } = useVideoRecording();
 
     // Check if face registration is required
     const {
         isRequired: isFaceRegistrationRequired,
         isLoading: isLoadingFaceStatus
     } = useFaceRegistrationRequired(
-        !!assessment?.proctoring_settings?.require_face_verification
+        !!(assessment as any)?.proctoring_settings?.require_face_verification
     );
 
     // Initialize answers array when assessment loads
@@ -159,10 +167,27 @@ const ExamTakingPage: React.FC = () => {
     };
 
     // Handle proctoring violation from webcam
-    const handleProctoringViolation = useCallback((violation: ProctoringViolation) => {
+    const handleProctoringViolation = useCallback((_violation: ProctoringViolation) => {
         setProctoringViolations((prev) => prev + 1);
         // Violations are handled by the WebcamProctor component (warnings)
     }, []);
+
+    // Start recording when camera stream becomes available after exam starts
+    useEffect(() => {
+        if (examStarted && sessionId && webcamRef.current && !isRecording) {
+            // Wait a bit for webcam to initialize
+            const timeout = setTimeout(() => {
+                const stream = webcamRef.current?.getStream();
+                if (stream) {
+                    const success = startRecording(stream);
+                    if (success) {
+                        console.log('Exam video recording started');
+                    }
+                }
+            }, 2000);
+            return () => clearTimeout(timeout);
+        }
+    }, [examStarted, sessionId, isRecording, startRecording]);
 
     // Start exam
     const startExam = async () => {
@@ -228,6 +253,25 @@ const ExamTakingPage: React.FC = () => {
         setSubmitting(true);
 
         try {
+            // Stop recording and upload video
+            if (isRecording && sessionId) {
+                const recordingResult = await stopRecording();
+                if (recordingResult) {
+                    console.log(`Uploading recording: ${recordingResult.duration}s, ${(recordingResult.blob.size / 1024 / 1024).toFixed(2)}MB`);
+                    try {
+                        await uploadRecordingMutation.mutateAsync({
+                            sessionId,
+                            videoBlob: recordingResult.blob,
+                            duration: recordingResult.duration,
+                        });
+                        console.log('Recording uploaded successfully');
+                    } catch (uploadError) {
+                        console.error('Failed to upload recording:', uploadError);
+                        // Continue with submission even if upload fails
+                    }
+                }
+            }
+
             // Prepare answers - ensure all questions have an answer
             const preparedAnswers = answers.map((answer, idx) => {
                 const question = assessment.questions?.[idx];
@@ -266,7 +310,7 @@ const ExamTakingPage: React.FC = () => {
             isSubmittingRef.current = false;
             setSubmitting(false);
         }
-    }, [assessment, submitting, answers, submitMutation, id, navigate]);
+    }, [assessment, submitting, answers, submitMutation, id, navigate, isRecording, sessionId, stopRecording, uploadRecordingMutation]);
 
     if (isLoading || !assessment) {
         return (
@@ -496,13 +540,13 @@ const ExamTakingPage: React.FC = () => {
             {/* Webcam Proctoring Component */}
             {sessionId && (
                 <WebcamProctor
+                    ref={webcamRef}
                     sessionId={sessionId}
-                    snapshotIntervalSeconds={assessment.proctoring_settings?.snapshot_interval_seconds || 5}
-                    motionThreshold={assessment.proctoring_settings?.motion_threshold || 30}
-                    requireFaceVerification={!!assessment.proctoring_settings?.require_face_verification}
+                    snapshotIntervalSeconds={(assessment as any).proctoring_settings?.snapshot_interval_seconds || 5}
+                    motionThreshold={(assessment as any).proctoring_settings?.motion_threshold || 30}
+                    requireFaceVerification={!!(assessment as any).proctoring_settings?.require_face_verification}
                     onViolation={handleProctoringViolation}
                     enabled={examStarted && !examCancelled && !submitting}
-                    onTerminated={() => setExamCancelled(true)}
                 />
             )}
         </div>

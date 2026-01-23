@@ -35,6 +35,12 @@ class AssessmentSerializer(serializers.ModelSerializer):
     approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True)
     content = AssessmentContentSerializer(many=True, read_only=True)
     questions = AssessmentQuestionSerializer(many=True, read_only=True)
+    # Computed statistics fields
+    total_submissions = serializers.SerializerMethodField()
+    average_score = serializers.SerializerMethodField()
+    submission_rate = serializers.SerializerMethodField()
+    # Student-specific status field
+    student_submission_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Assessment
@@ -64,6 +70,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
             "total_submissions",
             "average_score",
             "submission_rate",
+            "student_submission_status",
         )
         read_only_fields = (
             "created_by",
@@ -76,7 +83,38 @@ class AssessmentSerializer(serializers.ModelSerializer):
             "total_submissions",
             "average_score",
             "submission_rate",
+            "student_submission_status",
         )
+
+    def get_student_submission_status(self, obj) -> str | None:
+        """
+        Return submission status for the current student:
+        - 'SUBMITTED': Student has submitted this assessment
+        - 'IN_PROGRESS': Student has started but not submitted
+        - 'NOT_STARTED': Student has not started yet
+        - None: For non-student users or unauthenticated requests
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        
+        user = request.user
+        if user.role != User.Role.STUDENT:
+            return None
+        
+        # Check if student has submitted
+        if AssessmentSubmission.objects.filter(assessment=obj, student=user).exists():
+            return 'SUBMITTED'
+        
+        # Check if student has an in-progress session
+        session = ExamSession.objects.filter(assessment=obj, student=user).first()
+        if session:
+            if session.status == ExamSession.SessionStatus.IN_PROGRESS:
+                return 'IN_PROGRESS'
+            elif session.status == ExamSession.SessionStatus.TERMINATED:
+                return 'TERMINATED'
+        
+        return 'NOT_STARTED'
 
     def get_total_submissions(self, obj) -> int:
         return obj.submissions.count()
@@ -250,6 +288,9 @@ class AssessmentSubmissionSerializer(serializers.ModelSerializer):
         allow_empty=True,
     )
     
+    # Session ID for video recording access
+    session_id = serializers.UUIDField(source="session.id", read_only=True, allow_null=True)
+    
     # Proctoring statistics for teachers
     total_violations = serializers.SerializerMethodField()
     violations_by_type = serializers.SerializerMethodField()
@@ -272,7 +313,8 @@ class AssessmentSubmissionSerializer(serializers.ModelSerializer):
             "submitted_at",
             "created_at",
             "updated_at",
-            # Proctoring fields
+            # Session and proctoring fields
+            "session_id",
             "total_violations",
             "violations_by_type",
             "proctoring_snapshots",
@@ -284,6 +326,7 @@ class AssessmentSubmissionSerializer(serializers.ModelSerializer):
             "submitted_at",
             "created_at",
             "updated_at",
+            "session_id",
             "total_violations",
             "violations_by_type",
             "proctoring_snapshots",

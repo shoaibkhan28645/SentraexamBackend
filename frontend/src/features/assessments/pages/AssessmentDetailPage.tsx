@@ -23,6 +23,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { EditOutlined, ArrowLeftOutlined, CalendarOutlined, UnorderedListOutlined, WarningOutlined } from '@ant-design/icons';
 import { useAssessment, useSubmitAssessmentWork, useAssessmentSubmissions } from '../../../api/assessments';
 import { useAuth } from '../../../contexts/AuthContext';
+import SessionVideoPlayer from '../../../components/SessionVideoPlayer';
 import {
   AssessmentStatus,
   AssessmentType,
@@ -472,6 +473,14 @@ const SubmissionsPanel: React.FC<{ assessmentId: string; assessment?: Assessment
                 </div>
               </Card>
             )}
+
+            {/* Session Recording */}
+            {selectedSubmission.session_id && (
+              <SessionVideoPlayer
+                sessionId={selectedSubmission.session_id}
+                title="Session Recording"
+              />
+            )}
           </Space>
         )}
       </Modal>
@@ -589,7 +598,7 @@ const StudentSubmissionPanel: React.FC<{ assessment: AssessmentModel }> = ({ ass
                   }}
                   value={answers[index]}
                 >
-                  {question.options.map((option, optionIndex) => (
+                  {(question.options || []).map((option, optionIndex) => (
                     <Radio key={optionIndex} value={optionIndex}>
                       {option.text}
                     </Radio>

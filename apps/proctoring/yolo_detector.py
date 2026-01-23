@@ -162,8 +162,8 @@ class YOLODetector:
                     elif class_id == CELL_PHONE_CLASS_ID and confidence >= PHONE_CONFIDENCE_THRESHOLD:
                         phone_count += 1
             
-            logger.debug(
-                f"YOLO detected: {person_count} person(s), {phone_count} phone(s)"
+            logger.info(
+                f"YOLO detected: {person_count} person(s), {phone_count} phone(s), raw detections: {len(detections)}"
             )
             
             return YOLOAnalysisResult(

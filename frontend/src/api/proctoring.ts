@@ -287,3 +287,74 @@ export const useEndSessionProctoring = () => {
         },
     });
 };
+
+// ============================================================================
+// SESSION RECORDING
+// ============================================================================
+
+export interface SessionRecording {
+    recording_id: string | null;
+    video_url: string | null;
+    duration_seconds: number;
+    file_size_bytes: number;
+    upload_status: 'PENDING' | 'UPLOADING' | 'PROCESSING' | 'COMPLETE' | 'FAILED';
+    created_at: string;
+    message?: string;
+}
+
+export interface RecordingUploadResponse {
+    recording_id: string;
+    status: string;
+    file_size: number;
+    duration: number;
+}
+
+export const uploadRecording = async (
+    sessionId: string,
+    videoBlob: Blob,
+    duration: number
+): Promise<RecordingUploadResponse> => {
+    const formData = new FormData();
+    formData.append('session_id', sessionId);
+    formData.append('video', videoBlob, 'recording.webm');
+    formData.append('duration', duration.toString());
+
+    const { data } = await apiClient.post<RecordingUploadResponse>(
+        '/proctoring/recording/upload/',
+        formData,
+        {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        }
+    );
+    return data;
+};
+
+export const useUploadRecording = () => {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ sessionId, videoBlob, duration }: {
+            sessionId: string;
+            videoBlob: Blob;
+            duration: number;
+        }) => uploadRecording(sessionId, videoBlob, duration),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['session-recording'] });
+        },
+    });
+};
+
+export const getSessionRecording = async (sessionId: string): Promise<SessionRecording> => {
+    const { data } = await apiClient.get<SessionRecording>(
+        `/proctoring/session/${sessionId}/recording/`
+    );
+    return data;
+};
+
+export const useSessionRecording = (sessionId: string | undefined) => {
+    return useQuery({
+        queryKey: ['session-recording', sessionId],
+        queryFn: () => getSessionRecording(sessionId!),
+        enabled: !!sessionId,
+    });
+};
+

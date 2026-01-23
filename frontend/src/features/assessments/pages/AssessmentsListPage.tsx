@@ -163,10 +163,29 @@ const AssessmentsListPage: React.FC = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status: AssessmentStatus) => (
-        <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>
-      ),
-      filters: [
+      render: (status: AssessmentStatus, record: any) => {
+        // For students, show their submission status instead of assessment status
+        if (user?.role === UserRole.STUDENT) {
+          const studentStatus = record.student_submission_status;
+          if (studentStatus) {
+            const statusConfig: Record<string, { color: string; label: string }> = {
+              SUBMITTED: { color: 'green', label: 'Submitted' },
+              IN_PROGRESS: { color: 'orange', label: 'In Progress' },
+              TERMINATED: { color: 'red', label: 'Terminated' },
+              NOT_STARTED: { color: 'default', label: 'Not Started' },
+            };
+            const config = statusConfig[studentStatus] || { color: 'default', label: studentStatus };
+            return <Tag color={config.color}>{config.label}</Tag>;
+          }
+        }
+        // For non-students or when student status is null, show assessment status
+        return <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>;
+      },
+      filters: user?.role === UserRole.STUDENT ? [
+        { text: 'Submitted', value: 'SUBMITTED' },
+        { text: 'In Progress', value: 'IN_PROGRESS' },
+        { text: 'Not Started', value: 'NOT_STARTED' },
+      ] : [
         { text: 'Draft', value: AssessmentStatus.DRAFT },
         { text: 'Submitted', value: AssessmentStatus.SUBMITTED },
         { text: 'Approved', value: AssessmentStatus.APPROVED },
@@ -180,21 +199,21 @@ const AssessmentsListPage: React.FC = () => {
       title: 'Duration',
       dataIndex: 'duration_minutes',
       key: 'duration',
-      render: (minutes) => minutes ? `${minutes} min` : '-',
-      align: 'center',
+      render: (minutes: number) => minutes ? `${minutes} min` : '-',
+      align: 'center' as const,
     },
     {
       title: 'Total Marks',
       dataIndex: 'total_marks',
       key: 'marks',
-      render: (marks) => marks || '-',
-      align: 'center',
+      render: (marks: number) => marks || '-',
+      align: 'center' as const,
     },
     {
       title: 'Scheduled',
       dataIndex: 'scheduled_at',
       key: 'scheduled',
-      render: (date) => date ? new Date(date).toLocaleDateString() : '-',
+      render: (date: string) => date ? new Date(date).toLocaleDateString() : '-',
     },
     {
       title: 'Actions',
@@ -263,13 +282,35 @@ const AssessmentsListPage: React.FC = () => {
             </Popconfirm>
           )}
           {user?.role === UserRole.STUDENT && record.submission_format === AssessmentSubmissionFormat.ONLINE && (
-            <Button
-              type="link"
-              icon={<PlayCircleOutlined />}
-              onClick={() => navigate(`/dashboard/assessments/${record.id}/take`)}
-            >
-              Take
-            </Button>
+            <>
+              {(record as any).student_submission_status === 'SUBMITTED' ? (
+                <Button
+                  type="link"
+                  icon={<EyeOutlined />}
+                  onClick={() => navigate(`/dashboard/assessments/${record.id}`)}
+                >
+                  View Result
+                </Button>
+              ) : (record as any).student_submission_status === 'IN_PROGRESS' ? (
+                <Button
+                  type="link"
+                  icon={<PlayCircleOutlined />}
+                  onClick={() => navigate(`/dashboard/assessments/${record.id}/take`)}
+                >
+                  Continue
+                </Button>
+              ) : (record as any).student_submission_status === 'TERMINATED' ? (
+                <Tag color="red">Cannot Retake</Tag>
+              ) : (
+                <Button
+                  type="link"
+                  icon={<PlayCircleOutlined />}
+                  onClick={() => navigate(`/dashboard/assessments/${record.id}/take`)}
+                >
+                  Take Exam
+                </Button>
+              )}
+            </>
           )}
         </Space>
       ),

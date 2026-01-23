@@ -420,6 +420,8 @@ def detect_violations(analysis: AnalysisResult, config: dict) -> list[dict]:
     """Convert analysis result into violations based on config."""
     violations = []
     
+    logger.info(f"detect_violations: faces_detected={analysis['faces_detected']}, prohibited_objects={analysis['prohibited_objects']}")
+    
     # 1. Face Detection
     if analysis["faces_detected"] == 0:
         violations.append({"type": "NO_FACE", "severity": 4, "details": {"message": "No face detected"}})

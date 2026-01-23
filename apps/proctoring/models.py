@@ -287,3 +287,82 @@ class ProctoringSettings(BaseModel):
 
     def __str__(self) -> str:
         return f"Proctoring settings for {self.assessment}"
+
+
+def session_recording_upload_to(instance: "SessionRecording", filename: str) -> str:
+    extension = Path(filename).suffix
+    return f"proctoring/recordings/{instance.session.assessment_id}/{uuid.uuid4()}{extension}"
+
+
+class SessionRecording(BaseModel):
+    """Stores session video recording for proctoring review."""
+    
+    class UploadStatus(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        UPLOADING = "UPLOADING", "Uploading"
+        PROCESSING = "PROCESSING", "Processing"
+        COMPLETE = "COMPLETE", "Complete"
+        FAILED = "FAILED", "Failed"
+    
+    session = models.OneToOneField(
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="recording",
+    )
+    video_file = models.FileField(
+        upload_to=session_recording_upload_to,
+        null=True,
+        blank=True,
+    )
+    duration_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Duration of the recording in seconds"
+    )
+    file_size_bytes = models.BigIntegerField(
+        default=0,
+        help_text="File size in bytes"
+    )
+    upload_status = models.CharField(
+        max_length=20,
+        choices=UploadStatus.choices,
+        default=UploadStatus.PENDING,
+    )
+    chunks_received = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of video chunks received"
+    )
+    total_chunks = models.PositiveIntegerField(
+        default=0,
+        help_text="Expected total number of chunks"
+    )
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Error message if upload failed"
+    )
+    
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["session"]),
+            models.Index(fields=["upload_status"]),
+        ]
+    
+    def __str__(self) -> str:
+        return f"Recording for session {self.session_id}"
+    
+    def mark_uploading(self):
+        self.upload_status = self.UploadStatus.UPLOADING
+        self.save(update_fields=["upload_status", "updated_at"])
+    
+    def mark_complete(self, file_size: int, duration: int):
+        self.upload_status = self.UploadStatus.COMPLETE
+        self.file_size_bytes = file_size
+        self.duration_seconds = duration
+        self.save(update_fields=["upload_status", "file_size_bytes", "duration_seconds", "updated_at"])
+    
+    def mark_failed(self, error: str):
+        self.upload_status = self.UploadStatus.FAILED
+        self.error_message = error
+        self.save(update_fields=["upload_status", "error_message", "updated_at"])
+

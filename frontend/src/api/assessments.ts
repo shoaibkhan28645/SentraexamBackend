@@ -225,6 +225,8 @@ export const useSubmitAssessmentWork = () => {
     mutationFn: submitAssessmentWork,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assessment-submissions'] });
+      // Also invalidate assessments list to refresh student_submission_status
+      queryClient.invalidateQueries({ queryKey: ['assessments'] });
     },
   });
 };

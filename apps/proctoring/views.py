@@ -312,3 +312,91 @@ class ProctoringViewSet(viewsets.ViewSet):
         if session.student != request.user: return Response(status=status.HTTP_403_FORBIDDEN)
         clear_temporal_analyzer(str(session_id))
         return Response({"message": "Ended"})
+
+    @action(detail=False, methods=["post"], url_path="recording/upload")
+    def upload_recording(self, request):
+        """Upload video recording for a session."""
+        from .models import SessionRecording
+        
+        session_id = request.data.get("session_id")
+        video_file = request.FILES.get("video")
+        duration = request.data.get("duration", 0)
+        
+        if not session_id or not video_file:
+            return Response(
+                {"error": "session_id and video file are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = ExamSession.objects.get(id=session_id)
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        if session.student != request.user:
+            return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        
+        # Create or update recording
+        recording, created = SessionRecording.objects.get_or_create(
+            session=session,
+            defaults={"upload_status": SessionRecording.UploadStatus.UPLOADING}
+        )
+        
+        try:
+            recording.video_file = video_file
+            recording.file_size_bytes = video_file.size
+            recording.duration_seconds = int(duration)
+            recording.upload_status = SessionRecording.UploadStatus.COMPLETE
+            recording.save()
+            
+            logger.info(f"Recording uploaded for session {session_id}")
+            
+            return Response({
+                "recording_id": str(recording.id),
+                "status": "complete",
+                "file_size": recording.file_size_bytes,
+                "duration": recording.duration_seconds,
+            })
+        except Exception as e:
+            recording.mark_failed(str(e))
+            logger.error(f"Failed to save recording: {e}")
+            return Response(
+                {"error": "Failed to save recording"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=["get"], url_path="session/(?P<session_id>[^/.]+)/recording")
+    def get_session_recording(self, request, session_id=None):
+        """Get recording info for a session (teachers only)."""
+        from .models import SessionRecording
+        
+        try:
+            session = ExamSession.objects.get(id=session_id)
+        except ExamSession.DoesNotExist:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Only allow teachers/admins or the student themselves
+        if request.user.role == User.Role.STUDENT and session.student != request.user:
+            return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
+        
+        try:
+            recording = SessionRecording.objects.get(session=session)
+            video_url = None
+            if recording.video_file:
+                video_url = request.build_absolute_uri(recording.video_file.url)
+            
+            return Response({
+                "recording_id": str(recording.id),
+                "video_url": video_url,
+                "duration_seconds": recording.duration_seconds,
+                "file_size_bytes": recording.file_size_bytes,
+                "upload_status": recording.upload_status,
+                "created_at": recording.created_at.isoformat(),
+            })
+        except SessionRecording.DoesNotExist:
+            return Response({
+                "recording_id": None,
+                "video_url": None,
+                "message": "No recording available"
+            })
+

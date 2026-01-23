@@ -1,11 +1,10 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Alert, Badge, Space, Typography, Modal, Button, Progress, Tooltip } from 'antd';
+import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle, useLayoutEffect } from 'react';
+import { Alert, Badge, Space, Typography, Modal, Tooltip } from 'antd';
 import {
     CameraOutlined,
     EyeOutlined,
     WarningOutlined,
     ExclamationCircleOutlined,
-    CheckCircleOutlined,
     UserOutlined,
 } from '@ant-design/icons';
 import { useUploadSnapshot, useEndSessionProctoring } from '../api/proctoring';
@@ -21,6 +20,12 @@ interface WebcamProctorProps {
     onTerminated?: () => void;
     enabled?: boolean;
     requireFaceVerification?: boolean;
+}
+
+// Expose these methods via ref to parent components
+export interface WebcamProctorHandle {
+    getStream: () => MediaStream | null;
+    isStreamingState: () => boolean;
 }
 
 interface MotionDetector {
@@ -72,24 +77,23 @@ const createMotionDetector = (): MotionDetector => {
     };
 };
 
-const WebcamProctor: React.FC<WebcamProctorProps> = ({
+const WebcamProctor = forwardRef<WebcamProctorHandle, WebcamProctorProps>(({
     sessionId,
     snapshotIntervalSeconds = 5,
     motionThreshold = 30,
     onViolation,
-    onTerminated,
     enabled = true,
     requireFaceVerification = true,
-}) => {
+}, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const intervalRef = useRef<NodeJS.Timeout | null>(null);
-    const motionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const motionIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const motionDetectorRef = useRef<MotionDetector>(createMotionDetector());
     const lastCaptureTimeRef = useRef<number>(0);
 
-    const [isStreaming, setIsStreaming] = useState(false);
+    const [isStreamingState, setisStreamingState] = useState(false);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [violationCount, setViolationCount] = useState(0);
     const [lastViolation, setLastViolation] = useState<ProctoringViolation | null>(null);
@@ -101,6 +105,12 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
 
     const uploadMutation = useUploadSnapshot();
     const endProctoringMutation = useEndSessionProctoring();
+
+    // Expose stream access to parent components via ref
+    useImperativeHandle(ref, () => ({
+        getStream: () => streamRef.current,
+        isStreamingState: () => isStreamingState,
+    }), [isStreamingState]);
 
     // Start webcam stream
     const startCamera = useCallback(async () => {
@@ -115,11 +125,15 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                 audio: false,
             });
 
+            console.log('Camera stream acquired', { hasVideoRef: !!videoRef.current });
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
                 streamRef.current = stream;
-                setIsStreaming(true);
+                setisStreamingState(true);
                 setCameraError(null);
+                console.log('Stream assigned to video element, setisStreamingState(true) called');
+            } else {
+                console.error('Video ref is null, cannot start streaming state');
             }
         } catch (error: any) {
             console.error('Camera error:', error);
@@ -140,7 +154,7 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
         if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
-        setIsStreaming(false);
+        setisStreamingState(false);
     }, []);
 
     // Calculate motion score
@@ -152,7 +166,15 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
     // Capture and upload snapshot
     const captureSnapshot = useCallback(
         async (motionScore: number = 0) => {
-            if (!videoRef.current || !canvasRef.current || !isStreaming || !sessionId) {
+            // console.log("captureSnapshot called", { motionScore });
+
+            if (!videoRef.current || !canvasRef.current || !isStreamingState || !sessionId) {
+                console.log("Skipping snapshot: Missing refs or state", {
+                    hasVideo: !!videoRef.current,
+                    hasCanvas: !!canvasRef.current,
+                    isStreaming: isStreamingState,
+                    hasSession: !!sessionId
+                });
                 return;
             }
 
@@ -182,6 +204,7 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                     if (!blob || isUploading) return;
 
                     setIsUploading(true);
+                    console.log(`[WebcamProctor] Uploading snapshot... Motion: ${motionScore}`);
 
                     try {
                         const response = await uploadMutation.mutateAsync({
@@ -189,6 +212,8 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                             imageBlob: blob,
                             motionScore,
                         });
+
+                        console.log('[WebcamProctor] Snapshot uploaded. Response:', response);
 
                         // Update gaze result
                         if (response.gaze_result) {
@@ -201,6 +226,7 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
 
                         // Handle violations
                         if (response.violations.length > 0) {
+                            console.log('[WebcamProctor] Violations detected:', response.violations);
                             setViolationCount(response.total_violations);
                             setLastViolation(response.violations[0]);
 
@@ -208,6 +234,12 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                                 onViolation?.(v);
                                 showViolationWarning(v);
                             });
+                        }
+
+                        // Debugging total violations count update
+                        if (response.total_violations !== violationCount) {
+                            console.log(`[WebcamProctor] Updating total violations: ${violationCount} -> ${response.total_violations}`);
+                            setViolationCount(response.total_violations);
                         }
 
                         // Check if violations exceeded
@@ -228,7 +260,7 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                             });
                         }
                     } catch (error) {
-                        console.error('Failed to upload snapshot:', error);
+                        console.error('[WebcamProctor] Failed to upload snapshot:', error);
                     } finally {
                         setIsUploading(false);
                     }
@@ -237,8 +269,14 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                 0.85
             );
         },
-        [isStreaming, sessionId, uploadMutation, onViolation, isUploading]
+        [isStreamingState, sessionId, uploadMutation, onViolation, isUploading, violationCount]
     );
+
+    // Use stable ref for captureSnapshot to avoid resetting intervals
+    const captureSnapshotRef = useRef(captureSnapshot);
+    useLayoutEffect(() => {
+        captureSnapshotRef.current = captureSnapshot;
+    });
 
     // Show violation warning modal
     const showViolationWarning = (violation: ProctoringViolation) => {
@@ -292,14 +330,14 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
 
     // Motion detection loop
     useEffect(() => {
-        if (isStreaming && enabled) {
+        if (isStreamingState && enabled) {
             motionIntervalRef.current = setInterval(() => {
                 const motionScore = getMotionScore();
 
                 // If significant motion detected, capture immediately
                 if (motionScore > motionThreshold) {
                     console.log(`Motion detected: ${motionScore.toFixed(1)}%`);
-                    captureSnapshot(motionScore);
+                    captureSnapshotRef.current(motionScore);
                 }
             }, 500); // Check motion every 500ms
 
@@ -309,19 +347,20 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                 }
             };
         }
-    }, [isStreaming, enabled, getMotionScore, captureSnapshot, motionThreshold]);
+    }, [isStreamingState, enabled, getMotionScore, motionThreshold]);
 
     // Regular snapshot interval
     useEffect(() => {
-        if (isStreaming && enabled) {
+        console.log('Snapshot interval effect triggered', { isStreamingState, enabled });
+        if (isStreamingState && enabled) {
             // Capture first snapshot after 3 seconds
             const initialTimeout = setTimeout(() => {
-                captureSnapshot(0);
+                captureSnapshotRef.current(0);
             }, 3000);
 
             // Then capture at regular intervals
             intervalRef.current = setInterval(
-                () => captureSnapshot(0),
+                () => captureSnapshotRef.current(0),
                 snapshotIntervalSeconds * 1000
             );
 
@@ -332,15 +371,26 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                 }
             };
         }
-    }, [isStreaming, enabled, captureSnapshot, snapshotIntervalSeconds]);
+    }, [isStreamingState, enabled, snapshotIntervalSeconds]);
+
+    // Note: Video recording is now handled by parent component via useVideoRecording hook
+    // and accessing the stream via ref.getStream()
+
+    // Track sessionId in ref for cleanup
+    const sessionIdRef = useRef<string | null>(null);
+    useEffect(() => {
+        sessionIdRef.current = sessionId;
+    }, [sessionId]);
 
     // Start camera on mount
     useEffect(() => {
         if (enabled) {
+            console.log('WebcamProctor: Starting camera, enabled=', enabled);
             startCamera();
         }
 
         return () => {
+            console.log('WebcamProctor: Cleanup running');
             stopCamera();
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
@@ -348,12 +398,23 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
             if (motionIntervalRef.current) {
                 clearInterval(motionIntervalRef.current);
             }
-            // Clean up proctoring session
-            if (sessionId) {
-                endProctoringMutation.mutate(sessionId);
+        };
+        // Note: intentionally minimal deps to prevent cleanup on every render
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enabled]);
+
+    // Separate effect for session cleanup on actual unmount
+    useEffect(() => {
+        return () => {
+            // This cleanup only runs on actual component unmount
+            if (sessionIdRef.current) {
+                console.log('WebcamProctor: Ending proctoring session on unmount');
+                endProctoringMutation.mutate(sessionIdRef.current);
             }
         };
-    }, [enabled, startCamera, stopCamera, sessionId]);
+        // Empty deps = only runs on unmount
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     if (cameraError) {
         return (
@@ -423,8 +484,8 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
                     }}
                 >
                     <Badge
-                        status={isStreaming ? 'processing' : 'default'}
-                        color={isStreaming ? '#52c41a' : '#999'}
+                        status={isStreamingState ? 'processing' : 'default'}
+                        color={isStreamingState ? '#52c41a' : '#999'}
                     />
                     <Text style={{ color: '#fff', fontSize: 11, textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
                         {isUploading ? 'Analyzing...' : 'Live'}
@@ -537,6 +598,8 @@ const WebcamProctor: React.FC<WebcamProctorProps> = ({
             </div>
         </div>
     );
-};
+});
+
+WebcamProctor.displayName = 'WebcamProctor';
 
 export default WebcamProctor;
