@@ -101,8 +101,6 @@ export interface DepartmentMembership {
 
 // Course Types
 export const CourseStatus = {
-  DRAFT: 'DRAFT',
-  PENDING_APPROVAL: 'PENDING_APPROVAL',
   ACTIVE: 'ACTIVE',
   ARCHIVED: 'ARCHIVED',
 } as const;
@@ -136,6 +134,7 @@ export interface CreateCoursePayload {
 }
 
 export const EnrollmentStatus = {
+  PENDING: 'PENDING',
   ENROLLED: 'ENROLLED',
   COMPLETED: 'COMPLETED',
   DROPPED: 'DROPPED',
@@ -146,6 +145,8 @@ export interface CourseEnrollment {
   id: string;
   course: string;
   course_code: string;
+  course_title: string;
+  department_name: string;
   student: number;
   student_email: string;
   student_first_name: string;
@@ -297,7 +298,7 @@ export type AnnouncementStatus = (typeof AnnouncementStatus)[keyof typeof Announ
 
 
 export interface Notification {
-  id: number;
+  id: string;
   subject: string;
   body: string;
   is_read: boolean;

@@ -16,6 +16,7 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useUnreadNotificationCount } from '../api/notifications';
 import { UserRole } from '../types';
 
 const { Header, Sider, Content } = Layout;
@@ -26,8 +27,9 @@ const DashboardLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { data: unreadData } = useUnreadNotificationCount();
   const {
-    token: { colorBgContainer, colorPrimary },
+    token: { colorPrimary },
   } = theme.useToken();
 
   const handleLogout = () => {
@@ -203,7 +205,7 @@ const DashboardLayout: React.FC = () => {
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <Badge count={5} offset={[-5, 5]} color={colorPrimary}>
+            <Badge count={unreadData?.count || 0} offset={[-5, 5]} color={colorPrimary}>
               <Button
                 type="text"
                 shape="circle"

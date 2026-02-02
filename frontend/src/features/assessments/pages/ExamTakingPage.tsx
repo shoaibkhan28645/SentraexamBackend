@@ -56,10 +56,18 @@ const ExamTakingPage: React.FC = () => {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [startingSession, setStartingSession] = useState(false);
     const [showFaceRegistration, setShowFaceRegistration] = useState(false);
+    const [autoSubmitTriggered, setAutoSubmitTriggered] = useState(false);
+    const [lastViolationReason, setLastViolationReason] = useState<string>('');
 
     const containerRef = useRef<HTMLDivElement>(null);
     const isSubmittingRef = useRef(false);
     const webcamRef = useRef<WebcamProctorHandle>(null);
+    const answersRef = useRef<(number | string | null)[]>([]);
+
+    // Keep answersRef in sync with answers state
+    useEffect(() => {
+        answersRef.current = answers;
+    }, [answers]);
 
     // Video recording hook
     const { startRecording, stopRecording, isRecording } = useVideoRecording();
@@ -125,32 +133,97 @@ const ExamTakingPage: React.FC = () => {
     }, [examStarted, examCancelled]);
 
     const handleCheatingAttempt = useCallback((reason: string) => {
-        if (examCancelled) return;
+        if (examCancelled || isSubmittingRef.current || autoSubmitTriggered) return;
 
+        setLastViolationReason(reason);
         setCheatingAttempts((prevCount) => {
             const newCount = prevCount + 1;
+            console.log(`[ExamTakingPage] Cheating attempt detected: ${newCount}/${MAX_WARNINGS}`);
 
-            // Only show warning, never cancel
-            Modal.warning({
-                title: 'Warning: Suspicious Activity Detected!',
-                content: (
-                    <div>
-                        <p>{reason}</p>
-                        <p>You are not allowed to switch tabs or leave the exam window.</p>
-                        <p style={{ color: 'red', fontWeight: 'bold' }}>
-                            Warning {newCount} - All violations are recorded
-                        </p>
-                        <p style={{ fontSize: 12, color: '#666' }}>
-                            Your teacher will review all violations after submission.
-                        </p>
-                    </div>
-                ),
-                okText: 'I Understand',
-            });
+            if (newCount >= MAX_WARNINGS) {
+                // Trigger auto-submit via useEffect
+                setAutoSubmitTriggered(true);
+            } else {
+                // Show warning for attempts before max
+                Modal.warning({
+                    title: 'Warning: Suspicious Activity Detected!',
+                    content: (
+                        <div>
+                            <p>{reason}</p>
+                            <p>You are not allowed to switch tabs or leave the exam window.</p>
+                            <p style={{ color: 'red', fontWeight: 'bold' }}>
+                                Warning {newCount} of {MAX_WARNINGS} - Your exam will be auto-submitted if you exceed {MAX_WARNINGS} warnings!
+                            </p>
+                        </div>
+                    ),
+                    okText: 'I Understand',
+                });
+            }
 
             return newCount;
         });
-    }, [examCancelled]);
+    }, [examCancelled, autoSubmitTriggered]);
+
+    // Effect to handle auto-submit when warnings exceed limit
+    useEffect(() => {
+        if (!autoSubmitTriggered || isSubmittingRef.current || !assessment) return;
+
+        const performAutoSubmit = async () => {
+            isSubmittingRef.current = true;
+            setSubmitting(true);
+
+            Modal.error({
+                title: 'Exam Auto-Submitted!',
+                content: (
+                    <div>
+                        <p>You have exceeded the maximum number of allowed warnings ({MAX_WARNINGS}).</p>
+                        <p style={{ color: 'red', fontWeight: 'bold' }}>
+                            Reason: {lastViolationReason}
+                        </p>
+                        <p>Your exam is being automatically submitted.</p>
+                    </div>
+                ),
+                okText: 'OK',
+                centered: true,
+            });
+
+            try {
+                // Use ref for current answers
+                const currentAnswers = answersRef.current;
+                const preparedAnswers = currentAnswers.map((answer, idx) => {
+                    const question = assessment?.questions?.[idx];
+                    if (answer === null) {
+                        return question?.type === 'SUBJECTIVE' ? '' : -1;
+                    }
+                    return answer;
+                });
+
+                console.log('[ExamTakingPage] Auto-submitting exam with answers:', preparedAnswers);
+
+                await submitMutation.mutateAsync({
+                    assessmentId: assessment.id,
+                    answers: preparedAnswers,
+                });
+
+                message.warning('Exam auto-submitted due to excessive violations.');
+                localStorage.removeItem(`exam_end_${id}`);
+                localStorage.removeItem(`exam_cancelled_${id}`);
+
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                }
+                navigate('/dashboard/assessments');
+            } catch (error: any) {
+                console.error('[ExamTakingPage] Auto-submit error:', error);
+                message.error('Failed to auto-submit: ' + (error.response?.data?.detail || error.message));
+                isSubmittingRef.current = false;
+                setSubmitting(false);
+                setAutoSubmitTriggered(false);
+            }
+        };
+
+        performAutoSubmit();
+    }, [autoSubmitTriggered, assessment, submitMutation, id, navigate, lastViolationReason]);
 
     const toggleFullscreen = () => {
         if (!document.fullscreenElement) {
@@ -171,6 +244,17 @@ const ExamTakingPage: React.FC = () => {
         setProctoringViolations((prev) => prev + 1);
         // Violations are handled by the WebcamProctor component (warnings)
     }, []);
+
+    // Handle exam termination from proctoring (violations exceeded)
+    const handleExamTerminated = useCallback(() => {
+        // Clear local storage and navigate away
+        localStorage.removeItem(`exam_end_${id}`);
+        localStorage.removeItem(`exam_cancelled_${id}`);
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        }
+        navigate('/dashboard/assessments');
+    }, [id, navigate]);
 
     // Start recording when camera stream becomes available after exam starts
     useEffect(() => {
@@ -546,6 +630,7 @@ const ExamTakingPage: React.FC = () => {
                     motionThreshold={(assessment as any).proctoring_settings?.motion_threshold || 30}
                     requireFaceVerification={!!(assessment as any).proctoring_settings?.require_face_verification}
                     onViolation={handleProctoringViolation}
+                    onTerminated={handleExamTerminated}
                     enabled={examStarted && !examCancelled && !submitting}
                 />
             )}

@@ -114,10 +114,54 @@ class AssessmentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def schedule(self, request, *args, **kwargs):
+        from apps.notifications.models import Notification
+        from apps.courses.models import CourseEnrollment
+        
         assessment = self.get_object()
         serializer = AssessmentScheduleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(assessment=assessment)
+        
+        # Notify students about the scheduled exam
+        if assessment.assign_to_all and assessment.course:
+            # Notify all enrolled students in the course
+            enrolled_students = CourseEnrollment.objects.filter(
+                course=assessment.course,
+                status=CourseEnrollment.EnrollmentStatus.ENROLLED
+            ).select_related('student')
+            
+            notifications = [
+                Notification(
+                    user=enrollment.student,
+                    subject="New Exam Scheduled",
+                    body=f"A new exam '{assessment.title}' has been scheduled for {assessment.scheduled_at.strftime('%Y-%m-%d %H:%M') if assessment.scheduled_at else 'TBD'}. Course: {assessment.course.title}",
+                    metadata={
+                        "assessment_id": str(assessment.id),
+                        "course_id": str(assessment.course.id),
+                        "type": "exam_scheduled",
+                    }
+                )
+                for enrollment in enrolled_students
+            ]
+            Notification.objects.bulk_create(notifications)
+        else:
+            # Notify specifically assigned students
+            assignments = assessment.assignments.select_related('student')
+            notifications = [
+                Notification(
+                    user=assignment.student,
+                    subject="New Exam Scheduled",
+                    body=f"A new exam '{assessment.title}' has been scheduled for {assessment.scheduled_at.strftime('%Y-%m-%d %H:%M') if assessment.scheduled_at else 'TBD'}.",
+                    metadata={
+                        "assessment_id": str(assessment.id),
+                        "type": "exam_scheduled",
+                    }
+                )
+                for assignment in assignments
+            ]
+            if notifications:
+                Notification.objects.bulk_create(notifications)
+        
         return Response(AssessmentSerializer(assessment, context={"request": request}).data)
 
     # =========================================================================
@@ -127,6 +171,8 @@ class AssessmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="assign")
     def assign_students(self, request, *args, **kwargs):
         """Assign specific students to take this exam."""
+        from apps.notifications.models import Notification
+        
         assessment = self.get_object()
         if request.user.role not in {User.Role.ADMIN, User.Role.HOD, User.Role.TEACHER}:
             return Response(status=status.HTTP_403_FORBIDDEN)
@@ -134,6 +180,18 @@ class AssessmentViewSet(viewsets.ModelViewSet):
         serializer = AssignStudentsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         created = serializer.save(assessment=assessment)
+        
+        # Notify assigned students
+        for assignment in created:
+            Notification.objects.create(
+                user=assignment.student,
+                subject="New Exam Assigned",
+                body=f"You have been assigned to take the exam '{assessment.title}'. Scheduled: {assessment.scheduled_at.strftime('%Y-%m-%d %H:%M') if assessment.scheduled_at else 'TBD'}",
+                metadata={
+                    "assessment_id": str(assessment.id),
+                    "type": "exam_assigned",
+                }
+            )
         
         return Response({
             "message": f"Assigned {len(created)} new students to the exam.",
@@ -282,6 +340,27 @@ class AssessmentSubmissionViewSet(viewsets.ModelViewSet):
                 submission.status = AssessmentSubmission.SubmissionStatus.GRADED
             
             submission.save(update_fields=["score", "status", "updated_at"])
+            
+            # Create notification for student about submission
+            from apps.notifications.models import Notification
+            
+            if has_subjective:
+                body = f"Your exam '{assessment.title}' has been submitted successfully. It's pending manual grading for subjective questions."
+            else:
+                total_marks = sum(q.get("marks", 1) for q in questions)
+                body = f"Your exam '{assessment.title}' has been auto-graded. Score: {score}/{total_marks}"
+            
+            Notification.objects.create(
+                user=user,
+                subject="Exam Submitted",
+                body=body,
+                metadata={
+                    "submission_id": str(submission.id),
+                    "assessment_id": str(assessment.id),
+                    "score": score,
+                    "type": "exam_submitted",
+                }
+            )
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsAdminHODOrTeacher])
     def grade(self, request, *args, **kwargs):

@@ -163,3 +163,62 @@ export const useCreateCourseEnrollment = () => {
   });
 };
 
+// Enroll in a course as a student (direct enrollment)
+export const enrollInCourse = async (courseId: string): Promise<CourseEnrollment> => {
+  const { data } = await apiClient.post<CourseEnrollment>('/courses/enrollments/', {
+    course: courseId,
+  });
+  return data;
+};
+
+export const useEnrollInCourse = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: enrollInCourse,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['courses'] });
+    },
+  });
+};
+
+// Approve enrollment (HOD/Admin)
+export const approveEnrollment = async (enrollmentId: string): Promise<CourseEnrollment> => {
+  const { data } = await apiClient.post<CourseEnrollment>(
+    `/courses/enrollments/${enrollmentId}/approve/`
+  );
+  return data;
+};
+
+export const useApproveEnrollment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: approveEnrollment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-enrollments'] });
+    },
+  });
+};
+
+// Reject enrollment (HOD/Admin)
+export const rejectEnrollment = async (enrollmentId: string): Promise<void> => {
+  await apiClient.post(`/courses/enrollments/${enrollmentId}/reject/`);
+};
+
+export const useRejectEnrollment = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: rejectEnrollment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['course-enrollments'] });
+    },
+  });
+};
+
+// Get pending enrollments (for HOD dashboard)
+export const usePendingEnrollments = () => {
+  return useQuery({
+    queryKey: ['course-enrollments', { status: 'PENDING' }],
+    queryFn: () => listCourseEnrollments({ status: 'PENDING' }),
+  });
+};

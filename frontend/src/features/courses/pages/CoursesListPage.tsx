@@ -2,24 +2,61 @@ import React, { useState } from 'react';
 import { Table, Button, Space, Tag, Input, Select, message, Typography, Alert, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, CheckOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useCourses, useDeleteCourse, useApproveCourse } from '../../../api/courses';
-import type { Course } from '../../../types/index';
-import { CourseStatus } from '../../../types/index';
+import { useCourses, useDeleteCourse, useApproveCourse, useCourseEnrollments } from '../../../api/courses';
+import { useAuth } from '../../../contexts/AuthContext';
+import type { Course, CourseEnrollment } from '../../../types/index';
+import { CourseStatus, UserRole } from '../../../types/index';
 import type { ColumnType } from 'antd/es/table';
 
 const { Title } = Typography;
 
 const CoursesListPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, error, refetch } = useCourses({
-    search,
-    status: statusFilter,
-    page,
+  // Check if current user has admin/teacher/HOD role (can manage courses)
+  const canManageCourses = user?.role === UserRole.ADMIN || user?.role === UserRole.HOD || user?.role === UserRole.TEACHER;
+  const isStudent = user?.role === UserRole.STUDENT;
+
+  // For non-students: fetch all courses
+  const { data: coursesData, isLoading: coursesLoading, error: coursesError, refetch: refetchCourses } = useCourses({
+    search: isStudent ? undefined : search,
+    status: isStudent ? undefined : statusFilter,
+    page: isStudent ? undefined : page,
   });
+
+  // For students: fetch their enrollments to get enrolled course data
+  const { data: enrollmentsData, isLoading: enrollmentsLoading, error: enrollmentsError } = useCourseEnrollments({
+    status: 'ENROLLED',
+  });
+
+  // Determine which data to use based on role
+  const isLoading = isStudent ? enrollmentsLoading : coursesLoading;
+  const error = isStudent ? enrollmentsError : coursesError;
+  const refetch = refetchCourses;
+
+  // For students: extract courses from enrollments
+  // For others: use courses directly
+  const displayCourses = isStudent
+    ? (enrollmentsData?.results || [])
+      .filter((e: CourseEnrollment) => e.status === 'ENROLLED')
+      .map((e: CourseEnrollment) => ({
+        id: e.course,
+        code: e.course_code || '',
+        title: e.course_title || '',
+        department: e.course_department,
+        department_name: e.department_name || '',
+        credits: 0, // Not available in enrollment
+        status: CourseStatus.ACTIVE,
+        assigned_teacher_email: '',
+      } as Course))
+      .filter((c: Course) => !search || c.title.toLowerCase().includes(search.toLowerCase()) || c.code.toLowerCase().includes(search.toLowerCase()))
+    : (coursesData?.results || []);
+
+  const data = { results: displayCourses, count: displayCourses.length };
 
   const deleteMutation = useDeleteCourse();
   const approveMutation = useApproveCourse();
@@ -59,15 +96,11 @@ const CoursesListPage: React.FC = () => {
   };
 
   const statusColors: Record<CourseStatus, string> = {
-    [CourseStatus.DRAFT]: 'default',
-    [CourseStatus.PENDING_APPROVAL]: 'orange',
     [CourseStatus.ACTIVE]: 'green',
     [CourseStatus.ARCHIVED]: 'red',
   };
 
   const statusLabels: Record<CourseStatus, string> = {
-    [CourseStatus.DRAFT]: 'Draft',
-    [CourseStatus.PENDING_APPROVAL]: 'Pending Approval',
     [CourseStatus.ACTIVE]: 'Active',
     [CourseStatus.ARCHIVED]: 'Archived',
   };
@@ -108,8 +141,6 @@ const CoursesListPage: React.FC = () => {
         <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>
       ),
       filters: [
-        { text: 'Draft', value: CourseStatus.DRAFT },
-        { text: 'Pending Approval', value: CourseStatus.PENDING_APPROVAL },
         { text: 'Active', value: CourseStatus.ACTIVE },
         { text: 'Archived', value: CourseStatus.ARCHIVED },
       ],
@@ -120,10 +151,11 @@ const CoursesListPage: React.FC = () => {
       key: 'teacher',
       render: (email) => email || '-',
     },
-    {
+    // Only show Actions column for admin/HOD/teacher
+    ...(canManageCourses ? [{
       title: 'Actions',
       key: 'actions',
-      render: (_, record) => (
+      render: (_: any, record: Course) => (
         <Space>
           <Button
             type="link"
@@ -132,16 +164,7 @@ const CoursesListPage: React.FC = () => {
           >
             Edit
           </Button>
-          {record.status === CourseStatus.PENDING_APPROVAL && (
-            <Button
-              type="link"
-              icon={<CheckOutlined />}
-              onClick={() => handleApprove(record.id)}
-              loading={approveMutation.isPending}
-            >
-              Approve
-            </Button>
-          )}
+
           <Popconfirm
             title="Delete Course"
             description={`Are you sure you want to delete ${record.code} - ${record.title}?`}
@@ -156,20 +179,35 @@ const CoursesListPage: React.FC = () => {
           </Popconfirm>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={2} style={{ margin: 0 }}>Courses</Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => navigate('/dashboard/courses/new')}
-        >
-          Add Course
-        </Button>
+        <Title level={2} style={{ margin: 0 }}>
+          {user?.role === UserRole.STUDENT ? 'My Courses' : 'Courses'}
+        </Title>
+        {/* Show Enroll Course button for students */}
+        {user?.role === UserRole.STUDENT && (
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/dashboard/courses/enroll')}
+          >
+            Enroll Course
+          </Button>
+        )}
+        {/* Show Add Course button for admin/HOD/teacher */}
+        {canManageCourses && (
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/dashboard/courses/new')}
+          >
+            Add Course
+          </Button>
+        )}
       </div>
 
       <Space style={{ marginBottom: 16 }} size="middle">
@@ -188,8 +226,6 @@ const CoursesListPage: React.FC = () => {
           onChange={setStatusFilter}
           allowClear
         >
-          <Select.Option value={CourseStatus.DRAFT}>Draft</Select.Option>
-          <Select.Option value={CourseStatus.PENDING_APPROVAL}>Pending Approval</Select.Option>
           <Select.Option value={CourseStatus.ACTIVE}>Active</Select.Option>
           <Select.Option value={CourseStatus.ARCHIVED}>Archived</Select.Option>
         </Select>

@@ -82,6 +82,7 @@ const WebcamProctor = forwardRef<WebcamProctorHandle, WebcamProctorProps>(({
     snapshotIntervalSeconds = 5,
     motionThreshold = 30,
     onViolation,
+    onTerminated,
     enabled = true,
     requireFaceVerification = true,
 }, ref) => {
@@ -242,17 +243,41 @@ const WebcamProctor = forwardRef<WebcamProctorHandle, WebcamProctorProps>(({
                             setViolationCount(response.total_violations);
                         }
 
-                        // Check if violations exceeded
-                        if (response.violations_exceeded) {
+                        // Check if session was terminated by server
+                        if (response.is_terminated) {
+                            console.log('[WebcamProctor] Session terminated by server');
                             Modal.error({
-                                title: 'Violation Limit Exceeded',
+                                title: 'Exam Terminated',
                                 content: (
                                     <div>
                                         <p>
-                                            You have exceeded the maximum number of violations (
-                                            {response.total_violations}).
+                                            Your exam has been automatically terminated due to exceeding
+                                            the maximum number of violations ({response.total_violations}).
                                         </p>
-                                        <p>Your exam session may be flagged for review.</p>
+                                        <p>Your answers have been saved.</p>
+                                    </div>
+                                ),
+                                okText: 'OK',
+                                centered: true,
+                                onOk: () => {
+                                    onTerminated?.();
+                                },
+                            });
+                            return;
+                        }
+
+                        // Check if violations exceeded but not yet terminated
+                        if (response.violations_exceeded) {
+                            Modal.warning({
+                                title: 'Warning: Approaching Limit',
+                                content: (
+                                    <div>
+                                        <p>
+                                            You have {response.total_violations} violations.
+                                        </p>
+                                        <p style={{ color: '#ff4d4f', fontWeight: 'bold' }}>
+                                            Your exam may be terminated soon if violations continue.
+                                        </p>
                                     </div>
                                 ),
                                 okText: 'I Understand',
@@ -269,7 +294,7 @@ const WebcamProctor = forwardRef<WebcamProctorHandle, WebcamProctorProps>(({
                 0.85
             );
         },
-        [isStreamingState, sessionId, uploadMutation, onViolation, isUploading, violationCount]
+        [isStreamingState, sessionId, uploadMutation, onViolation, onTerminated, isUploading, violationCount]
     );
 
     // Use stable ref for captureSnapshot to avoid resetting intervals

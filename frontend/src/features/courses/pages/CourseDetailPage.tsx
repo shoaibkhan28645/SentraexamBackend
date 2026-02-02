@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Card, Descriptions, Tag, Typography, Button, Space, Spin, Alert, Table, Modal, Select, message } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
-import { EditOutlined, ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons';
-import { useCourse, useCourseEnrollments, useCreateCourseEnrollment } from '../../../api/courses';
+import { EditOutlined, ArrowLeftOutlined, PlusOutlined, CheckOutlined } from '@ant-design/icons'
+import { useCourse, useCourseEnrollments, useCreateCourseEnrollment, useEnrollInCourse } from '../../../api/courses';
 import { useUsers } from '../../../api/users';
 import { CourseStatus, UserRole } from '../../../types/index';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -29,6 +29,13 @@ const CourseDetailPage: React.FC = () => {
   });
 
   const createEnrollmentMutation = useCreateCourseEnrollment();
+  const enrollInCourseMutation = useEnrollInCourse();
+
+  // Check if current student is enrolled
+  const studentEnrollment = enrollments?.results?.find(
+    (e: any) => e.student === user?.id
+  );
+  const isEnrolled = studentEnrollment?.status === 'ENROLLED';
 
   const handleEnroll = async () => {
     if (!courseId || !selectedStudent) return;
@@ -43,6 +50,17 @@ const CourseDetailPage: React.FC = () => {
       setSelectedStudent(undefined);
     } catch (error: any) {
       message.error(error.response?.data?.detail || 'Failed to enroll student');
+    }
+  };
+
+  // Handle student direct enrollment in course
+  const handleEnrollInCourse = async () => {
+    if (!courseId) return;
+    try {
+      await enrollInCourseMutation.mutateAsync(courseId);
+      message.success('Successfully enrolled in the course!');
+    } catch (error: any) {
+      message.error(error.response?.data?.course?.[0] || error.response?.data?.detail || 'Failed to enroll');
     }
   };
 
@@ -83,15 +101,11 @@ const CourseDetailPage: React.FC = () => {
   }
 
   const statusColors: Record<CourseStatus, string> = {
-    [CourseStatus.DRAFT]: 'default',
-    [CourseStatus.PENDING_APPROVAL]: 'orange',
     [CourseStatus.ACTIVE]: 'green',
     [CourseStatus.ARCHIVED]: 'red',
   };
 
   const statusLabels: Record<CourseStatus, string> = {
-    [CourseStatus.DRAFT]: 'Draft',
-    [CourseStatus.PENDING_APPROVAL]: 'Pending Approval',
     [CourseStatus.ACTIVE]: 'Active',
     [CourseStatus.ARCHIVED]: 'Archived',
   };
@@ -108,13 +122,34 @@ const CourseDetailPage: React.FC = () => {
           </Button>
           <Title level={2} style={{ margin: 0 }}>Course Details</Title>
         </Space>
-        <Button
-          type="primary"
-          icon={<EditOutlined />}
-          onClick={() => navigate(`/dashboard/courses/${course.id}/edit`)}
-        >
-          Edit Course
-        </Button>
+        <Space>
+          {/* Student: Enroll Button (only if not already enrolled) */}
+          {user?.role === UserRole.STUDENT && !isEnrolled && (
+            <Button
+              type="primary"
+              icon={<CheckOutlined />}
+              onClick={handleEnrollInCourse}
+              loading={enrollInCourseMutation.isPending}
+            >
+              Enroll Now
+            </Button>
+          )}
+          {user?.role === UserRole.STUDENT && isEnrolled && (
+            <Tag color="green" style={{ padding: '4px 12px', fontSize: 14 }}>
+              Enrolled
+            </Tag>
+          )}
+          {/* Admin/HOD/Teacher: Edit Button */}
+          {(user?.role === UserRole.ADMIN || user?.role === UserRole.HOD || user?.role === UserRole.TEACHER) && (
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={() => navigate(`/dashboard/courses/${course.id}/edit`)}
+            >
+              Edit Course
+            </Button>
+          )}
+        </Space>
       </div>
 
       <Card>
@@ -156,7 +191,7 @@ const CourseDetailPage: React.FC = () => {
           {course.approved_at && (
             <>
               <Descriptions.Item label="Approved By">
-                {course.approved_by_email || '-'}
+                {(course as any).approved_by_email || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Approved At">
                 {new Date(course.approved_at).toLocaleString()}

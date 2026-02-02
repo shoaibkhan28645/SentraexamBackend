@@ -10,8 +10,6 @@ User = settings.AUTH_USER_MODEL
 
 class Course(BaseModel):
     class Status(models.TextChoices):
-        DRAFT = "DRAFT", "Draft"
-        PENDING_APPROVAL = "PENDING_APPROVAL", "Pending Approval"
         ACTIVE = "ACTIVE", "Active"
         ARCHIVED = "ARCHIVED", "Archived"
 
@@ -24,7 +22,7 @@ class Course(BaseModel):
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     credits = models.PositiveIntegerField(default=3)
-    status = models.CharField(max_length=32, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.ACTIVE)
     assigned_teacher = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -50,6 +48,7 @@ class Course(BaseModel):
 
 class CourseEnrollment(OwnedModel):
     class EnrollmentStatus(models.TextChoices):
+        PENDING = "PENDING", "Pending Approval"
         ENROLLED = "ENROLLED", "Enrolled"
         COMPLETED = "COMPLETED", "Completed"
         DROPPED = "DROPPED", "Dropped"

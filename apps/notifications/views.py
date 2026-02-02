@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from apps.users.models import User
 from apps.users.permissions import IsAdmin, IsAdminOrHOD
+from django.utils import timezone
 from .models import Announcement, AnnouncementRecipient, Notification
 
 UserModel = get_user_model()
@@ -110,10 +111,25 @@ class NotificationViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     filterset_fields = ("is_read",)
 
     def get_queryset(self) -> QuerySet[Notification]:
-        return Notification.objects.filter(user=self.request.user)
+        # Filter notifications strictly to current user only
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
 
     @action(detail=True, methods=["post"])
     def mark_read(self, request, *args, **kwargs):
         notification = self.get_object()
         notification.mark_read()
         return Response(self.get_serializer(notification).data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="mark-all-read")
+    def mark_all_read(self, request, *args, **kwargs):
+        """Mark all notifications as read for the current user."""
+        updated = Notification.objects.filter(
+            user=request.user, is_read=False
+        ).update(is_read=True, read_at=timezone.now())
+        return Response({"marked_read": updated}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="unread-count")
+    def unread_count(self, request, *args, **kwargs):
+        """Get count of unread notifications for the current user."""
+        count = Notification.objects.filter(user=request.user, is_read=False).count()
+        return Response({"count": count}, status=status.HTTP_200_OK)

@@ -52,6 +52,22 @@ class CourseCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Assigned teacher must have teacher or HOD role.")
         return value
 
+    def validate_department(self, value):
+        """Restrict HOD to only create courses for their own department."""
+        request = self.context.get("request")
+        if request and request.user.role == User.Role.HOD:
+            # Compare department IDs, not objects
+            user_dept_id = getattr(request.user, 'department_id', None)
+            if not user_dept_id:
+                raise serializers.ValidationError(
+                    "Your account is not assigned to a department."
+                )
+            if value.id != user_dept_id:
+                raise serializers.ValidationError(
+                    "You can only create courses for your own department."
+                )
+        return value
+
     def validate(self, attrs):
         department = attrs.get("department") or getattr(self.instance, "department", None)
         teacher = attrs.get("assigned_teacher") or getattr(self.instance, "assigned_teacher", None)
@@ -83,12 +99,13 @@ class CourseApprovalSerializer(serializers.ModelSerializer):
         )
         return instance
 
-
 class CourseEnrollmentSerializer(serializers.ModelSerializer):
     student_email = serializers.EmailField(source="student.email", read_only=True)
     student_first_name = serializers.CharField(source="student.first_name", read_only=True)
     student_last_name = serializers.CharField(source="student.last_name", read_only=True)
     course_code = serializers.CharField(source="course.code", read_only=True)
+    course_title = serializers.CharField(source="course.title", read_only=True)
+    department_name = serializers.CharField(source="course.department.name", read_only=True)
 
     class Meta:
         model = CourseEnrollment
@@ -96,6 +113,8 @@ class CourseEnrollmentSerializer(serializers.ModelSerializer):
             "id",
             "course",
             "course_code",
+            "course_title",
+            "department_name",
             "student",
             "student_email",
             "student_first_name",
@@ -104,10 +123,38 @@ class CourseEnrollmentSerializer(serializers.ModelSerializer):
             "enrolled_at",
             "completed_at",
         )
-        read_only_fields = ("enrolled_at", "completed_at")
+        read_only_fields = ("student", "enrolled_at", "completed_at")
+
+    def validate_course(self, value):
+        """Validate that students can only enroll in courses from their department."""
+        request = self.context.get("request")
+        if request and request.user.role == User.Role.STUDENT:
+            # Check if student has a department assigned
+            student_dept_id = getattr(request.user, 'department_id', None)
+            if not student_dept_id:
+                raise serializers.ValidationError(
+                    "Your account is not assigned to a department. Please contact an administrator."
+                )
+            
+            # Check department match
+            if value.department_id != student_dept_id:
+                raise serializers.ValidationError(
+                    "You can only enroll in courses from your department."
+                )
+            
+            # Check if student is already enrolled
+            existing = CourseEnrollment.objects.filter(
+                course=value, student=request.user
+            ).exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED).exists()
+            if existing:
+                raise serializers.ValidationError(
+                    "You are already enrolled in this course."
+                )
+        return value
 
     def update(self, instance, validated_data):
         status = validated_data.get("status")
         if status and status == CourseEnrollment.EnrollmentStatus.COMPLETED:
             instance.completed_at = timezone.now()
         return super().update(instance, validated_data)
+

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from django.db.models import Count
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +12,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from apps.users.models import User
 from apps.assessments.models import ExamSession
+from apps.notifications.models import Notification
 from .models import (
     ProctoringSnapshot,
     ProctoringViolation,
@@ -140,6 +142,14 @@ class ProctoringViewSet(viewsets.ViewSet):
         if session.student != request.user:
             return Response({"error": "Not authorized"}, status=status.HTTP_403_FORBIDDEN)
         
+        # Reject snapshots from terminated/submitted sessions
+        if session.status in [ExamSession.SessionStatus.TERMINATED, ExamSession.SessionStatus.SUBMITTED, ExamSession.SessionStatus.GRADED]:
+            return Response({
+                "error": "Session already ended",
+                "is_terminated": True,
+                "session_status": session.status
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
         # Settings
         try:
             settings = session.assessment.proctoring_settings
@@ -225,6 +235,28 @@ class ProctoringViewSet(viewsets.ViewSet):
 
         total_violations = ProctoringViolation.objects.filter(session=session, is_false_positive=False).count()
         
+        # Auto-terminate if violations exceeded threshold
+        is_terminated = False
+        if total_violations >= max_violations and session.status == ExamSession.SessionStatus.IN_PROGRESS:
+            session.status = ExamSession.SessionStatus.TERMINATED
+            session.ended_at = timezone.now()
+            session.save(update_fields=["status", "ended_at", "updated_at"])
+            is_terminated = True
+            
+            # Create notification for student
+            Notification.objects.create(
+                user=session.student,
+                subject="Exam Auto-Terminated",
+                body=f"Your exam '{session.assessment.title}' was automatically terminated due to exceeding the allowed violations limit ({max_violations}).",
+                metadata={
+                    "assessment_id": str(session.assessment.id),
+                    "session_id": str(session.id),
+                    "reason": "violations_exceeded",
+                    "total_violations": total_violations,
+                }
+            )
+            logger.info(f"Session {session.id} auto-terminated due to violations: {total_violations}/{max_violations}")
+        
         return Response({
             "snapshot_id": str(snapshot.id),
             "faces_detected": snapshot.faces_detected,
@@ -233,7 +265,7 @@ class ProctoringViewSet(viewsets.ViewSet):
             "face_verification_confidence": snapshot.face_verification_confidence,
             "violations": ProctoringViolationSerializer(created_violations, many=True).data,
             "total_violations": total_violations,
-            "is_terminated": False,
+            "is_terminated": is_terminated,
             "violations_exceeded": total_violations >= max_violations
         })
 

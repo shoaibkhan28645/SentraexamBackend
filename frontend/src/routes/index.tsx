@@ -32,6 +32,7 @@ import ComingSoonPage from '../pages/ComingSoonPage';
 import CoursesListPage from '../features/courses/pages/CoursesListPage';
 import CourseFormPage from '../features/courses/pages/CourseFormPage';
 import CourseDetailPage from '../features/courses/pages/CourseDetailPage';
+import EnrollCoursePage from '../features/courses/pages/EnrollCoursePage';
 
 // Assessment Pages
 import AssessmentsListPage from '../features/assessments/pages/AssessmentsListPage';
@@ -42,6 +43,7 @@ import ExamTakingPage from '../features/assessments/pages/ExamTakingPage';
 // Notification Pages
 import AnnouncementsListPage from '../features/notifications/pages/AnnouncementsListPage';
 import AnnouncementFormPage from '../features/notifications/pages/AnnouncementFormPage';
+import NotificationsPage from '../features/notifications/pages/NotificationsPage';
 
 // Document Pages
 import DocumentsListPage from '../features/documents/pages/DocumentsListPage';
@@ -161,6 +163,14 @@ export const routes: RouteObject[] = [
         ),
       },
       {
+        path: 'courses/enroll',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.STUDENT]}>
+            <EnrollCoursePage />
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: 'courses/:id/edit',
         element: (
           <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER]}>
@@ -219,12 +229,12 @@ export const routes: RouteObject[] = [
           </ProtectedRoute>
         ),
       },
-      // Notifications routes
+      // Notifications routes (all users can see their notifications)
       {
         path: 'notifications',
         element: (
-          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
-            <AnnouncementsListPage />
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD, UserRole.TEACHER, UserRole.STUDENT]}>
+            <NotificationsPage />
           </ProtectedRoute>
         ),
       },
@@ -241,6 +251,15 @@ export const routes: RouteObject[] = [
         element: (
           <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
             <AnnouncementFormPage />
+          </ProtectedRoute>
+        ),
+      },
+      // Announcements management (Admin/HOD only)
+      {
+        path: 'announcements',
+        element: (
+          <ProtectedRoute allowedRoles={[UserRole.ADMIN, UserRole.HOD]}>
+            <AnnouncementsListPage />
           </ProtectedRoute>
         ),
       },

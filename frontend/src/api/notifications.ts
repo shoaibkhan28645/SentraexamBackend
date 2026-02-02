@@ -198,8 +198,8 @@ export const useNotifications = (params?: {
 };
 
 // Mark notification as read
-export const markNotificationAsRead = async (id: number): Promise<Notification> => {
-  const { data } = await apiClient.post<Notification>(`/notifications/${id}/mark-read/`);
+export const markNotificationAsRead = async (id: string): Promise<Notification> => {
+  const { data } = await apiClient.post<Notification>(`/notifications/${id}/mark_read/`);
   return data;
 };
 

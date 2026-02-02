@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useCourse, useCreateCourse, useUpdateCourse } from '../../../api/courses';
 import { useDepartments } from '../../../api/departments';
 import { useUsers } from '../../../api/users';
+import { useAuth } from '../../../contexts/AuthContext';
 import type { CreateCoursePayload, CourseStatus } from '../../../types/index';
 import { UserRole } from '../../../types/index';
 
@@ -15,6 +16,7 @@ const CourseFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const courseId = id || undefined;
+  const { user } = useAuth();
 
   const [form] = Form.useForm();
 
@@ -25,6 +27,11 @@ const CourseFormPage: React.FC = () => {
   const createMutation = useCreateCourse();
   const updateMutation = useUpdateCourse();
 
+  // Filter departments for HOD - they can only select their own department
+  const availableDepartments = user?.role === UserRole.HOD
+    ? departments?.results?.filter(d => d.id === user.department)
+    : departments?.results;
+
   React.useEffect(() => {
     if (course && isEdit) {
       form.setFieldsValue({
@@ -34,6 +41,13 @@ const CourseFormPage: React.FC = () => {
       });
     }
   }, [course, isEdit, form]);
+
+  // Auto-set department for HOD users
+  React.useEffect(() => {
+    if (!isEdit && user?.role === UserRole.HOD && user.department) {
+      form.setFieldsValue({ department: user.department });
+    }
+  }, [isEdit, user, form]);
 
   const handleSubmit = async (values: any) => {
     try {
@@ -93,9 +107,9 @@ const CourseFormPage: React.FC = () => {
             <Select
               placeholder="Select department"
               loading={!departments}
-              disabled={isEdit}
+              disabled={isEdit || (user?.role === UserRole.HOD && availableDepartments?.length === 1)}
             >
-              {departments?.results?.map((dept) => (
+              {availableDepartments?.map((dept) => (
                 <Select.Option key={dept.id} value={dept.id}>
                   {dept.name}
                 </Select.Option>
@@ -172,8 +186,6 @@ const CourseFormPage: React.FC = () => {
             rules={[{ required: true, message: 'Please select status' }]}
           >
             <Select placeholder="Select status">
-              <Select.Option value="DRAFT">Draft</Select.Option>
-              <Select.Option value="PENDING_APPROVAL">Pending Approval</Select.Option>
               <Select.Option value="ACTIVE">Active</Select.Option>
               <Select.Option value="ARCHIVED">Archived</Select.Option>
             </Select>
